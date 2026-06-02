@@ -13,12 +13,14 @@ class TouchControls {
   }
 
   init(): void {
-    const joyZone = document.getElementById('joy-zone')!;
     this.joystickBase = document.getElementById('joy-base')!;
     this.joystickKnob = document.getElementById('joy-knob')!;
     const interactBtn = document.getElementById('btn-interact')!;
 
-    joyZone.addEventListener('touchstart', (e) => {
+    // Capture starts only on the base circle — the zone div is pointer-events:none
+    // so it doesn't block taps on the game canvas behind it.
+    // Move/end are tracked on document so the finger can roam outside the base.
+    this.joystickBase.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (this.activeTouchId !== null) return;
       const t = e.changedTouches[0];
@@ -26,11 +28,12 @@ class TouchControls {
       this.updateJoystick(t.clientX, t.clientY);
     }, { passive: false });
 
-    joyZone.addEventListener('touchmove', (e) => {
-      e.preventDefault();
+    document.addEventListener('touchmove', (e) => {
+      if (this.activeTouchId === null) return;
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
         if (t.identifier === this.activeTouchId) {
+          e.preventDefault();
           this.updateJoystick(t.clientX, t.clientY);
           break;
         }
@@ -48,8 +51,8 @@ class TouchControls {
         }
       }
     };
-    joyZone.addEventListener('touchend', endJoy, { passive: false });
-    joyZone.addEventListener('touchcancel', endJoy, { passive: false });
+    document.addEventListener('touchend', endJoy);
+    document.addEventListener('touchcancel', endJoy);
 
     interactBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
