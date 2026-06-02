@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { PLAYER_SPEED } from '../constants';
+import { touchControls } from '../ui/TouchControls';
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -45,6 +46,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.eKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).on('down', () => this.tryInteract());
     this.eKey.on('down', () => this.tryInteract());
+    touchControls.addInteractListener(() => this.tryInteract());
   }
 
   private tryInteract(): void {
@@ -68,24 +70,37 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   update(): void {
     const { left: cLeft, right: cRight, up: cUp, down: cDown } = this.cursors;
-    const left  = cLeft.isDown  || this.wasd.left.isDown;
-    const right = cRight.isDown || this.wasd.right.isDown;
-    const up    = cUp.isDown    || this.wasd.up.isDown;
-    const down  = cDown.isDown  || this.wasd.down.isDown;
+    const kLeft  = cLeft.isDown  || this.wasd.left.isDown;
+    const kRight = cRight.isDown || this.wasd.right.isDown;
+    const kUp    = cUp.isDown    || this.wasd.up.isDown;
+    const kDown  = cDown.isDown  || this.wasd.down.isDown;
+    const kActive = kLeft || kRight || kUp || kDown;
+
+    const tdx = touchControls.dx;
+    const tdy = touchControls.dy;
+    const tActive = Math.abs(tdx) > 0.08 || Math.abs(tdy) > 0.08;
 
     const body = this.body as Phaser.Physics.Arcade.Body;
 
-    if (left || right || up || down) {
-      // Keyboard always takes over and cancels auto-walk
+    if (kActive || tActive) {
+      // Manual input cancels auto-walk
       this.clearMoveTargets();
-      let vx = (left ? -1 : right ? 1 : 0) * PLAYER_SPEED;
-      let vy = (up   ? -1 : down  ? 1 : 0) * PLAYER_SPEED;
-      if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
+
+      let vx: number, vy: number;
+      if (kActive) {
+        vx = (kLeft ? -1 : kRight ? 1 : 0) * PLAYER_SPEED;
+        vy = (kUp   ? -1 : kDown  ? 1 : 0) * PLAYER_SPEED;
+        if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
+      } else {
+        vx = tdx * PLAYER_SPEED;
+        vy = tdy * PLAYER_SPEED;
+      }
+
       body.setVelocity(vx, vy);
-      if      (vx < 0) { this.facing = 'left';  this.setTexture('player_side'); this.setFlipX(true);  }
-      else if (vx > 0) { this.facing = 'right'; this.setTexture('player_side'); this.setFlipX(false); }
-      else if (vy < 0) { this.facing = 'up';    this.setTexture('player_up');   this.setFlipX(false); }
-      else if (vy > 0) { this.facing = 'down';  this.setTexture('player_down'); this.setFlipX(false); }
+      if      (vx < -0.1) { this.facing = 'left';  this.setTexture('player_side'); this.setFlipX(true);  }
+      else if (vx >  0.1) { this.facing = 'right'; this.setTexture('player_side'); this.setFlipX(false); }
+      else if (vy < -0.1) { this.facing = 'up';    this.setTexture('player_up');   this.setFlipX(false); }
+      else if (vy >  0.1) { this.facing = 'down';  this.setTexture('player_down'); this.setFlipX(false); }
     } else if (this.moveTargets.length > 0) {
       const t = this.moveTargets[0];
       const dx = t.x - this.x;

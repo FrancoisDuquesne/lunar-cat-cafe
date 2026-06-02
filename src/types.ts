@@ -49,9 +49,13 @@ export interface ActiveOrder {
 export interface ShopState {
   catToys: number;
   catTrees: number;
-  employees: number;
+  employees: number;      // waiters (kept for backward compat)
   extraMachines: number;
   placedDecorations: PlacedDecoration[];
+  ownedTableSlotIds: number[];
+  cooks: number;
+  guards: number;
+  caterers: number;
 }
 
 export interface OrderInfo {

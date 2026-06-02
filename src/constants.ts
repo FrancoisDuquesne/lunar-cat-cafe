@@ -84,95 +84,144 @@ export const DECORATION_ITEMS: DecorationDef[] = [
 
 export const CAT_NAMES = ['Luna', 'Captain Whiskers', 'Nova', 'Comet', 'Orbit', 'Nebula'];
 
-export const EMPLOYEE_NAMES = ['Astrid', 'Leo', 'Zara', 'Finn'];
+export const EMPLOYEE_NAMES = ['Astrid', 'Leo', 'Zara', 'Finn', 'Mira', 'Rex'];
 
+// Day-end cat shop only
 export const SHOP_ITEMS = [
-  { id: 'cat_toy',        name: 'Cat Toy',        cost:  40, max: 4, desc: 'Cats play more, +happiness' },
-  { id: 'cat_tree',       name: 'Cat Tree',        cost:  80, max: 2, desc: 'Cats love to climb!' },
-  { id: 'employee',       name: 'Hire Waiter',     cost: 150, max: 2, desc: 'Auto-takes orders' },
-  { id: 'extra_machines', name: 'Extra Machines',  cost: 180, max: 1, desc: '+1 station of each type for parallel cooking' },
+  { id: 'cat_toy',  name: 'Cat Toy',  cost:  40, max: 4, desc: 'Cats play more, +happiness' },
+  { id: 'cat_tree', name: 'Cat Tree', cost:  80, max: 2, desc: 'Cats love to climb!' },
 ] as const;
 
+// ─── TABLE SLOTS ──────────────────────────────────────────────────────────────
+
+export interface TableSlotDef {
+  id: number;
+  col: number;
+  row: number;
+  type: 'single' | 'group';
+  cost: number;
+  name: string;
+  seats: number;
+}
+
+// All possible table/booth positions. IDs 0-1 are starter tables (cost=0 but still listed for consistency).
+// Players begin with ownedTableSlotIds: [0, 1, 2] and purchase the rest.
+export const TABLE_SLOT_DEFS: TableSlotDef[] = [
+  { id: 0,  col: 2,  row: 7,  type: 'single', cost: 0,   name: 'Corner Table',    seats: 1 },
+  { id: 1,  col: 21, row: 7,  type: 'single', cost: 0,   name: 'Corner Table',    seats: 1 },
+  { id: 2,  col: 6,  row: 7,  type: 'single', cost: 120, name: 'Window Table',    seats: 1 },
+  { id: 3,  col: 2,  row: 11, type: 'single', cost: 120, name: 'Wall Table',      seats: 1 },
+  { id: 4,  col: 6,  row: 11, type: 'single', cost: 120, name: 'Garden Table',    seats: 1 },
+  { id: 5,  col: 25, row: 7,  type: 'single', cost: 120, name: 'Window Table',    seats: 1 },
+  { id: 6,  col: 21, row: 11, type: 'single', cost: 120, name: 'Wall Table',      seats: 1 },
+  { id: 7,  col: 25, row: 11, type: 'single', cost: 120, name: 'Garden Table',    seats: 1 },
+  { id: 8,  col: 3,  row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
+  { id: 9,  col: 10, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
+  { id: 10, col: 17, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
+  { id: 11, col: 22, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
+];
+
+// ─── EMPLOYEE TYPES ───────────────────────────────────────────────────────────
+
+export type EmployeeRole = 'waiter' | 'cook' | 'guard' | 'caterer';
+
+export interface EmployeeTypeDef {
+  role: EmployeeRole;
+  name: string;
+  cost: number;
+  max: number;
+  desc: string;
+  badgeColor: number;
+  badgeHex: string;
+}
+
+export const EMPLOYEE_TYPES: EmployeeTypeDef[] = [
+  { role: 'waiter',  name: 'Waiter',          cost: 150, max: 3, desc: 'Takes orders for you',         badgeColor: 0x60CC80, badgeHex: '#60CC80' },
+  { role: 'cook',    name: 'Cook',             cost: 250, max: 2, desc: 'Auto-starts cooking orders',   badgeColor: 0xFF9944, badgeHex: '#FF9944' },
+  { role: 'guard',   name: 'Security Guard',  cost: 200, max: 1, desc: '+5 reputation per day',         badgeColor: 0x6688DD, badgeHex: '#6688DD' },
+  { role: 'caterer', name: 'Wine Caterer',     cost: 300, max: 1, desc: '+25% tip bonus',               badgeColor: 0xDD88CC, badgeHex: '#DD88CC' },
+];
+
 export const COLORS = {
-  // Interior floor — warm amber parquet with rich dark grain
-  FLOOR_A:         0xC8762A,  // warm amber oak
-  FLOOR_B:         0xA85E1A,  // darker amber
-  FLOOR_SEAM:      0x7A3E08,  // dark wood seam
+  // Interior floor — warm amber oak planks
+  FLOOR_A:         0xC87828,
+  FLOOR_B:         0xA86020,
+  FLOOR_SEAM:      0x7A4210,
 
-  // Rich plum/indigo walls with gold trim
-  WALL_CREAM:      0x2A1A40,  // deep indigo wall
-  WALL_DARK:       0x180E28,  // darker indigo base
-  WINDOW_FRAME:    0xC8920A,  // gold frame
+  // Warm cream walls with teal accent
+  WALL_CREAM:      0xE8D8A8,
+  WALL_DARK:       0xA89868,
+  WINDOW_FRAME:    0xF0C018,
 
-  // Counters — dark marble with gold veining
-  COUNTER_TOP:     0x2E1E4A,  // deep purple-slate
-  COUNTER_SIDE:    0x1C1030,
+  // Counters — warm mahogany
+  COUNTER_TOP:     0x7C4A18,
+  COUNTER_SIDE:    0x3C1C06,
 
-  // Furniture — rich mahogany + brass
-  TABLE_TOP:       0x6B3A10,  // deep mahogany
-  TABLE_LEG:       0x4A2408,
-  CHAIR_TOP:       0x8B2040,  // deep crimson cushion
-  CHAIR_LEG:       0x5A1428,
+  // Furniture — warm mahogany + gold
+  TABLE_TOP:       0x6A3810,
+  TABLE_LEG:       0xD4A820,
+  CHAIR_TOP:       0xD84040,
+  CHAIR_LEG:       0xD4A820,
 
-  // Kitchen tiles — dark slate with warm accent
-  KITCHEN_A:       0x1E2030,  // dark slate
-  KITCHEN_B:       0x161828,  // darker slate
-  KITCHEN_GROUT:   0x3A3050,
+  // Kitchen tiles — cream checkerboard
+  KITCHEN_A:       0xF0E8D0,
+  KITCHEN_B:       0xD4C494,
+  KITCHEN_GROUT:   0xA08858,
 
-  // Space exterior — very deep indigo/violet
-  SPACE_DEEP:      0x03020E,
-  SPACE_MID:       0x06041C,
-  SPACE_BLUE:      0x0A0830,
-  MOON_GRAY:       0x8A8A9A,  // moon surface
-  MOON_LIGHT:      0xB0B0C0,
-  MOON_DARK:       0x6A6A7A,
+  // Space exterior — deep teal-navy
+  SPACE_DEEP:      0x0B1A40,
+  SPACE_MID:       0x0D2050,
+  SPACE_BLUE:      0x102860,
+  MOON_GRAY:       0xC8C4B0,
+  MOON_LIGHT:      0xE0DDD0,
+  MOON_DARK:       0x9A9480,
 
   // Earth & celestial
   EARTH_OCEAN:     0x1A6FAA,
   EARTH_LAND:      0x2E7D52,
   EARTH_CLOUD:     0xDDEEFF,
-  DOME_GLASS:      0x88AACC,
+  DOME_GLASS:      0x88BBCC,
 
-  // Cat colors
-  CAT_ORANGE:      0xFF8C42,
-  CAT_ORANGE_D:    0xCC6020,
-  CAT_GRAY:        0x9E9E9E,
-  CAT_GRAY_D:      0x6E6E6E,
+  // Cat colors — vibrant, anime-saturated
+  CAT_ORANGE:      0xFF7A28,
+  CAT_ORANGE_D:    0xCC5810,
+  CAT_GRAY:        0x9A9A9A,
+  CAT_GRAY_D:      0x6A6A6A,
   CAT_BLACK:       0x222233,
   CAT_BLACK_D:     0x111122,
   CAT_CREAM:       0xF0DEB0,
-  CAT_CREAM_D:     0xD0B890,
-  CAT_NOSE:        0xFF9999,
+  CAT_CREAM_D:     0xD0B880,
+  CAT_NOSE:        0xFF8899,
   CAT_EYE:         0x44CC44,
 
   // Customer palette
-  SKIN_A:          0xFFDBAC,
-  SKIN_B:          0xD4944A,
-  ASTRONAUT_SUIT:  0xCCCCDD,
-  ASTRONAUT_VISOR: 0x4ECDC4,
+  SKIN_A:          0xF5C88A,
+  SKIN_B:          0xD49050,
+  ASTRONAUT_SUIT:  0xDDDDEE,
+  ASTRONAUT_VISOR: 0x28C0C8,
   SCIENTIST_COAT:  0xEEEEEE,
   SCIENTIST_HAT:   0x334466,
-  TOURIST_SHIRT:   0xFF6B6B,
-  WORKER_SUIT:     0xFF9A3C,
+  TOURIST_SHIRT:   0xFF6060,
+  WORKER_SUIT:     0xFF8822,
 
   // Player
-  PLAYER_SUIT:     0xDDDDFF,
-  PLAYER_VISOR:    0x5CE0D8,
+  PLAYER_SUIT:     0xEEEEFF,
+  PLAYER_VISOR:    0x30C8D0,
 
   // Employee
-  EMPLOYEE_SUIT:   0x66CC88,
+  EMPLOYEE_SUIT:   0x60CC80,
   EMPLOYEE_VISOR:  0xFFDD44,
 
-  // UI — deep space-purple panels with gold
-  UI_GOLD:         0xFFD700,
-  UI_HEART:        0xFF6B8A,
-  UI_STAR:         0xFFE566,
-  UI_PANEL:        0x0E0820,  // very deep indigo
-  UI_PANEL_LIGHT:  0x1E1438,
-  UI_TEXT:         0xFFEDD0,
-  UI_PATIENCE_OK:  0x66DD66,
-  UI_PATIENCE_LOW: 0xFF6633,
-  PARTICLE_STEAM:  0xCCDDDD,
+  // UI — warm dark panels with gold
+  UI_GOLD:         0xF0C018,
+  UI_HEART:        0xFF5588,
+  UI_STAR:         0xFFE044,
+  UI_PANEL:        0x1A1428,
+  UI_PANEL_LIGHT:  0x2A2040,
+  UI_TEXT:         0xFFF0D8,
+  UI_PATIENCE_OK:  0x55CC55,
+  UI_PATIENCE_LOW: 0xFF5522,
+  PARTICLE_STEAM:  0xCCEEEE,
 } as const;
 
 // Tile type constants

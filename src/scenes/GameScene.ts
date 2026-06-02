@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { TILE, GAME_W, GAME_H, MAP_COLS, MAP_ROWS, COLORS, MENU_ITEMS, DAY_DURATION_MS, CUSTOMER_SPAWN_MS, SHOP_ITEMS, EMPLOYEE_NAMES, DECORATION_ITEMS, CAFE_TIERS, DecorationDef, PlacedDecoration } from '../constants';
+import {
+  TILE, GAME_W, GAME_H, MAP_COLS, MAP_ROWS, COLORS, MENU_ITEMS,
+  DAY_DURATION_MS, CUSTOMER_SPAWN_MS, EMPLOYEE_NAMES,
+  DECORATION_ITEMS, CAFE_TIERS, DecorationDef, PlacedDecoration,
+  SHOP_ITEMS, TABLE_SLOT_DEFS, TableSlotDef, EMPLOYEE_TYPES, EmployeeRole,
+} from '../constants';
 import { MenuItemDef, CustomerType, InteractionContext, TableSlot, TableSeat, ShopState, OrderInfo } from '../types';
 import { Player } from '../entities/Player';
 import { Cat } from '../entities/Cat';
@@ -75,13 +80,19 @@ export class GameScene extends Phaser.Scene {
   private dayProgress = 0;
   private totalServed = 0;
   private nextCustomerId = 1;
-  private shopState: ShopState = { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0, placedDecorations: [] };
+  private shopState: ShopState = {
+    catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
+    placedDecorations: [],
+    ownedTableSlotIds: [0, 1, 2],
+    cooks: 0, guards: 0, caterers: 0,
+  };
 
   private interactionPrompt?: Phaser.GameObjects.Container;
   private currentInteraction: InteractionContext = { type: 'none', label: '' };
 
   private customerSpawnTimer = 0;
   private autoSaveTimer = 0;
+  private autoCookTimer = 0;
   private dayPhase: 'morning' | 'afternoon' | 'evening' | 'night' = 'morning';
   private dayEnded = false;
   private dayEndShown = false;
@@ -94,22 +105,22 @@ export class GameScene extends Phaser.Scene {
   private shopRefreshFns: Array<(hover?: boolean) => void> = [];
   private uiRefreshTimer = 0;
   private pathfinder!: Pathfinder;
-  private customerPathfinder!: Pathfinder; // kitchen tiles not walkable — customers stay outside
+  private customerPathfinder!: Pathfinder;
 
-  // Decoration / café tier system
-  private isDecorateMode = false;
+  // Store / decoration system
+  private isStorePanelOpen = false;
   private pendingDecorationDef: DecorationDef | null = null;
   private ghostSprite: Phaser.GameObjects.Image | null = null;
   private decorateOverlayText: Phaser.GameObjects.Text | null = null;
-  private decorationSprites = new Map<string, Phaser.GameObjects.Image>(); // "tileX,tileY" → sprite
-  private occupiedDecoTiles = new Set<string>();  // "tileX,tileY"
-  private hardBlockedTiles = new Set<string>();   // furniture tiles — cannot place decor
+  private decorationSprites = new Map<string, Phaser.GameObjects.Image>();
+  private occupiedDecoTiles = new Set<string>();
+  private hardBlockedTiles = new Set<string>();
   private currentTierLevel = 1;
 
   constructor() { super('GameScene'); }
 
   create(): void {
-    // Reset mutable state — Phaser reuses the instance on scene.restart()
+    // Reset mutable state
     this.customers = [];
     this.stations = [];
     this.tables = [];
@@ -118,6 +129,7 @@ export class GameScene extends Phaser.Scene {
     this.employeeAssignedIds = new Set();
     this.shopRefreshFns = [];
     this.uiRefreshTimer = 0;
+    this.autoCookTimer = 0;
     this.dayProgress = 0;
     this.dayEnded = false;
     this.dayEndShown = false;
@@ -127,7 +139,7 @@ export class GameScene extends Phaser.Scene {
     this.autoSaveTimer = 0;
     this.interactionPrompt = undefined;
     this.currentInteraction = { type: 'none', label: '' };
-    this.isDecorateMode = false;
+    this.isStorePanelOpen = false;
     this.pendingDecorationDef = null;
     this.ghostSprite = null;
     this.decorateOverlayText = null;
@@ -140,7 +152,11 @@ export class GameScene extends Phaser.Scene {
     this.reputation = saved.reputation;
     this.day = saved.day;
     this.totalServed = saved.totalServed;
-    this.shopState = saved.shop ?? { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0, placedDecorations: [] };
+    this.shopState = saved.shop ?? {
+      catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
+      placedDecorations: [], ownedTableSlotIds: [0, 1, 2],
+      cooks: 0, guards: 0, caterers: 0,
+    };
 
     this.buildMap();
     this.buildFurniture();
@@ -153,7 +169,6 @@ export class GameScene extends Phaser.Scene {
     this.renderPlacedDecorations();
     this.currentTierLevel = this.getCurrentTier().level;
 
-    // Start player inside the central kitchen island (col 14, row 8)
     this.player = new Player(this, 14 * TILE + TILE / 2, 8 * TILE + TILE / 2);
     this.player.onInteract = () => this.handleInteraction();
 
@@ -176,39 +191,46 @@ export class GameScene extends Phaser.Scene {
 
     this.scheduleNextCustomer();
 
-    // ESC key — exit decorate mode first, then go to menu
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on('down', () => {
-      if (this.isDecorateMode) { this.exitDecorateMode(); }
+      if (this.isStorePanelOpen) { this.closeStorePanel(); }
       else { this.goToMenu(); }
     });
 
-    // D key — toggle decoration panel
-    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D).on('down', () => {
-      if (this.isDecorateMode) {
-        this.exitDecorateMode();
-        this.game.events.emit('game_event', { type: 'close_decorate_panel' });
+    // S key (or D for backward compat) — toggle store panel
+    const toggleStore = () => {
+      if (this.isStorePanelOpen) {
+        this.closeStorePanel();
+        this.game.events.emit('game_event', { type: 'close_store_panel' });
       } else {
-        this.enterDecorateMode();
-        this.game.events.emit('game_event', { type: 'open_decorate_panel', money: this.money });
+        this.openStorePanel();
+        this.game.events.emit('game_event', { type: 'open_store_panel' });
       }
-    });
+    };
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D).on('down', toggleStore);
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S).on('down', toggleStore);
 
-    // Events from UIScene decoration panel
-    this.game.events.on('game_event', (evt: { type: string; defId?: string }) => {
+    this.game.events.on('game_event', (evt: {
+      type: string; defId?: string; slotId?: number;
+      role?: EmployeeRole; upgradeId?: string;
+    }) => {
       if (evt.type === 'start_placement') {
         const def = DECORATION_ITEMS.find(d => d.id === evt.defId);
         if (def) { this.pendingDecorationDef = def; this.refreshGhostSprite(); }
-      } else if (evt.type === 'close_decorate_panel') {
-        this.exitDecorateMode();
-      } else if (evt.type === 'open_decorate_panel') {
-        this.enterDecorateMode();
+      } else if (evt.type === 'close_store_panel') {
+        this.closeStorePanel();
+      } else if (evt.type === 'open_store_panel') {
+        this.openStorePanel();
+      } else if (evt.type === 'buy_table' && evt.slotId !== undefined) {
+        this.handleBuyTable(evt.slotId);
+      } else if (evt.type === 'hire_staff' && evt.role) {
+        this.handleHireStaff(evt.role);
+      } else if (evt.type === 'buy_kitchen' && evt.upgradeId) {
+        this.handleBuyKitchen(evt.upgradeId);
       }
     }, this);
 
-    // Menu button event from UIScene
     this.game.events.on('go_menu', this.goToMenu, this);
 
-    // Tap-to-interact: player auto-walks to the tapped object and acts
     this.input.on('pointerdown', this.handleTap, this);
 
     this.events.once('shutdown', () => {
@@ -255,35 +277,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // FURNITURE
+  // FURNITURE — dynamic, driven by ownedTableSlotIds
   // ─────────────────────────────────────────────────────────────────────
 
   private buildFurniture(): void {
     this.furnitureGroup = this.physics.add.staticGroup();
+    const owned = new Set(this.shopState.ownedTableSlotIds ?? [0, 1, 2]);
+    TABLE_SLOT_DEFS.filter(s => owned.has(s.id)).forEach(slot => this.buildTableSlot(slot));
+  }
 
-    // Layout: 8 single tables flanking the island + 4 group tables below it
-    // Single tables left (cols 1-9) and right (cols 20-28), mid-rows
-    const singleLayout = [
-      { col: 2, row: 7 }, { col: 6, row: 7 },   // left side, island-height band
-      { col: 2, row: 11 }, { col: 6, row: 11 },  // left side, below island
-      { col: 21, row: 7 }, { col: 25, row: 7 },  // right side, island-height band
-      { col: 21, row: 11 }, { col: 25, row: 11 }, // right side, below island
-    ];
-    // Group tables below the island (rows 12-13)
-    const groupLayout = [
-      { col: 3,  row: 12 }, { col: 10, row: 12 },
-      { col: 17, row: 12 }, { col: 22, row: 12 },
-    ];
-
-    let tableId = 0;
-
-    // Single-seat tables
-    for (const pos of singleLayout) {
-      const wx = pos.col * TILE + TILE;
-      const wy = pos.row * TILE + TILE / 2;
+  private buildTableSlot(slot: TableSlotDef): void {
+    if (slot.type === 'single') {
+      const wx = slot.col * TILE + TILE;
+      const wy = slot.row * TILE + TILE / 2;
 
       this.add.sprite(wx, wy, 'obj_table').setOrigin(0.5, 0.8).setDepth(3);
-
       const tBody = this.furnitureGroup.create(wx, wy, 'obj_table') as Phaser.Physics.Arcade.Image;
       tBody.setVisible(false).setSize(44, 28).setOffset(4, 2);
       tBody.refreshBody();
@@ -291,42 +299,68 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(wx, wy - 26, 'obj_chair').setDepth(2).setFlipY(true);
       this.add.sprite(wx, wy + 26, 'obj_chair').setDepth(4);
 
-      const seat: TableSeat = { seatX: wx, seatY: wy + 22, occupied: false, customerId: null };
-      const tid = tableId++;
-      this.tables.push({ id: tid, worldX: wx, worldY: wy, seats: [seat] });
-      this.add.text(wx, wy - 20, `T${tid + 1}`, {
-        fontSize: '8px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
+      this.add.text(wx, wy - 20, `T${slot.id + 1}`, {
+        fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
         stroke: '#3A1A00', strokeThickness: 3,
       }).setOrigin(0.5, 0.5).setDepth(4.5);
-    }
 
-    // 2-seat group tables
-    for (const pos of groupLayout) {
-      const wx = pos.col * TILE + TILE + 10;
-      const wy = pos.row * TILE + TILE / 2;
+      this.tables.push({
+        id: slot.id, worldX: wx, worldY: wy,
+        seats: [{ seatX: wx, seatY: wy + 22, occupied: false, customerId: null }],
+      });
+    } else {
+      const wx = slot.col * TILE + TILE + 10;
+      const wy = slot.row * TILE + TILE / 2;
 
       this.add.sprite(wx, wy, 'obj_table_group').setOrigin(0.5, 0.8).setDepth(3);
-
       const tBody = this.furnitureGroup.create(wx, wy, 'obj_table_group') as Phaser.Physics.Arcade.Image;
       tBody.setVisible(false).setSize(68, 28).setOffset(4, 2);
       tBody.refreshBody();
 
-      // 4 chairs: 2 north, 2 south
       this.add.sprite(wx - 18, wy - 26, 'obj_chair').setDepth(2).setFlipY(true);
       this.add.sprite(wx + 18, wy - 26, 'obj_chair').setDepth(2).setFlipY(true);
       this.add.sprite(wx - 18, wy + 26, 'obj_chair').setDepth(4);
       this.add.sprite(wx + 18, wy + 26, 'obj_chair').setDepth(4);
 
-      const seats: TableSeat[] = [
-        { seatX: wx - 18, seatY: wy + 22, occupied: false, customerId: null },
-        { seatX: wx + 18, seatY: wy + 22, occupied: false, customerId: null },
-      ];
-      const tid = tableId++;
-      this.tables.push({ id: tid, worldX: wx, worldY: wy, seats });
-      this.add.text(wx, wy - 20, `T${tid + 1}`, {
-        fontSize: '8px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
+      this.add.text(wx, wy - 20, `T${slot.id + 1}`, {
+        fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
         stroke: '#3A1A00', strokeThickness: 3,
       }).setOrigin(0.5, 0.5).setDepth(4.5);
+
+      this.tables.push({
+        id: slot.id, worldX: wx, worldY: wy,
+        seats: [
+          { seatX: wx - 18, seatY: wy + 22, occupied: false, customerId: null },
+          { seatX: wx + 18, seatY: wy + 22, occupied: false, customerId: null },
+        ],
+      });
+    }
+  }
+
+  // Add a table to the live world (called when purchasing from the in-game store)
+  private addTableToWorld(slot: TableSlotDef): void {
+    this.buildTableSlot(slot);
+
+    // Update pathfinders with new furniture body
+    const children = this.furnitureGroup.getChildren();
+    const latest = children[children.length - 1] as Phaser.Physics.Arcade.Image;
+    const body = latest.body as Phaser.Physics.Arcade.StaticBody;
+    if (body) {
+      this.pathfinder.blockRect(body.x, body.y, body.width, body.height);
+      this.customerPathfinder.blockRect(body.x, body.y, body.width, body.height);
+    }
+
+    // Update hard-blocked decoration tiles
+    const c = slot.col;
+    const r = slot.row;
+    if (slot.type === 'single') {
+      this.hardBlockedTiles.add(`${c+1},${r}`);
+      this.hardBlockedTiles.add(`${c+1},${r-1}`);
+      this.hardBlockedTiles.add(`${c+1},${r+1}`);
+    } else {
+      this.hardBlockedTiles.add(`${c+1},${r}`);
+      this.hardBlockedTiles.add(`${c},${r-1}`);   this.hardBlockedTiles.add(`${c+2},${r-1}`);
+      this.hardBlockedTiles.add(`${c},${r+1}`);   this.hardBlockedTiles.add(`${c+2},${r+1}`);
     }
   }
 
@@ -337,7 +371,6 @@ export class GameScene extends Phaser.Scene {
   private buildKitchenStations(): void {
     type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
 
-    // Stations inside central island (cols 11-18, rows 7-8)
     const baseDefs: StationDef[] = [
       { col: 12, row: 7, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee' },
       { col: 15, row: 7, type: 'stove',  tex: 'obj_stove',          label: 'Stove'  },
@@ -349,9 +382,7 @@ export class GameScene extends Phaser.Scene {
       { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
     ];
 
-    const defs = this.shopState.extraMachines >= 1
-      ? [...baseDefs, ...extraDefs]
-      : baseDefs;
+    const defs = this.shopState.extraMachines >= 1 ? [...baseDefs, ...extraDefs] : baseDefs;
 
     defs.forEach((def, i) => {
       const wx = def.col * TILE + TILE / 2;
@@ -359,7 +390,8 @@ export class GameScene extends Phaser.Scene {
 
       const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
       const label = this.add.text(wx, wy - 20, def.label, {
-        fontSize: '9px', color: '#FFEEDD', fontFamily: 'monospace',
+        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5, 1).setDepth(5);
 
       this.stations.push({
@@ -369,13 +401,37 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // Trash can — far right inside island
     this.trashCanX = 18 * TILE + TILE / 2;
     this.trashCanY = 8 * TILE + TILE / 2;
     this.add.sprite(this.trashCanX, this.trashCanY, 'obj_trash_can').setDepth(4).setOrigin(0.5, 0.7);
     this.add.text(this.trashCanX, this.trashCanY - 16, 'Discard', {
-      fontSize: '8px', color: '#888877', fontFamily: 'monospace',
+      fontSize: '10px', color: '#998877', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 1).setDepth(5);
+  }
+
+  private addExtraKitchenStations(): void {
+    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
+    const extraDefs: StationDef[] = [
+      { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
+      { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
+      { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
+    ];
+    const startId = this.stations.length;
+    extraDefs.forEach((def, i) => {
+      const wx = def.col * TILE + TILE / 2;
+      const wy = def.row * TILE + TILE / 2;
+      const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
+      const label = this.add.text(wx, wy - 20, def.label, {
+        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1).setDepth(5);
+      this.stations.push({
+        id: startId + i, type: def.type, worldX: wx, worldY: wy,
+        sprite, label, isCooking: false, cookProgress: 0,
+        cookTargetMs: 0, currentOrderId: null,
+      });
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -383,7 +439,6 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private buildCatBeds(): void {
-    // Beds in bottom corners and along side walls
     const bedPositions = [
       { col: 1,  row: 13 }, { col: 27, row: 13 },
       { col: 1,  row: 5  }, { col: 27, row: 5  },
@@ -394,7 +449,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildDecorations(): void {
-    // Large Earth visible through back windows
     const earthX = 22 * TILE;
     const earthY = 2.5 * TILE;
     const earth = this.add.graphics().setDepth(1.5);
@@ -409,7 +463,6 @@ export class GameScene extends Phaser.Scene {
     earth.fillEllipse(earthX + 14, earthY, 22, 10);
     earth.fillEllipse(earthX - 18, earthY + 2, 18, 8);
 
-    // Moon in another window
     const moonX = 6 * TILE;
     const moonY = 2.5 * TILE;
     const moonG = this.add.graphics().setDepth(1.5);
@@ -417,27 +470,23 @@ export class GameScene extends Phaser.Scene {
     moonG.fillStyle(COLORS.MOON_DARK, 0.8); moonG.fillCircle(moonX, moonY, 18);
     moonG.fillStyle(COLORS.MOON_GRAY, 1); moonG.fillCircle(moonX - 4, moonY - 3, 14);
 
-    // Nebula wash visible across all windows — deep warm amber
     const nebula = this.add.graphics().setDepth(1.4).setBlendMode(Phaser.BlendModes.ADD);
     nebula.fillStyle(0xFF6600, 0.04); nebula.fillCircle(15 * TILE, 2 * TILE, 200);
     nebula.fillStyle(0x4400AA, 0.06); nebula.fillCircle(20 * TILE, 3 * TILE, 160);
 
-    // Plants in dining corners and against walls
     const plantPositions = [
-      { col: 1, row: 4 }, { col: 28, row: 4 },    // back corners
-      { col: 1, row: 14 }, { col: 28, row: 14 },  // front corners
-      { col: 1, row: 9 }, { col: 28, row: 9 },    // side mid-points
+      { col: 1, row: 4 }, { col: 28, row: 4 },
+      { col: 1, row: 14 }, { col: 28, row: 14 },
+      { col: 1, row: 9 }, { col: 28, row: 9 },
     ];
     plantPositions.forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
     });
 
-    // Cat food bowls near cat beds
     [{ col: 2, row: 14 }, { col: 26, row: 14 }].forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_food_bowl').setDepth(2).setOrigin(0.5, 0.7);
     });
 
-    // Shop-purchased cat toys
     const toyPositions = [
       { col: 3, row: 13 }, { col: 25, row: 13 },
       { col: 3, row: 6 },  { col: 25, row: 6 },
@@ -447,7 +496,6 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_cat_toy').setDepth(3).setOrigin(0.5, 1);
     }
 
-    // Shop-purchased cat trees
     const treePositions = [
       { col: 8, row: 4 }, { col: 20, row: 4 },
     ];
@@ -456,29 +504,27 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_cat_tree').setDepth(3).setOrigin(0.5, 1);
     }
 
-    // Warm amber glow pools — above each table cluster
     const lightGraphics = this.add.graphics().setDepth(0.5).setBlendMode(Phaser.BlendModes.ADD);
     const lightPositions = [
-      [4 * TILE, 8 * TILE],   [8 * TILE, 8 * TILE],   // left tables
-      [4 * TILE, 12 * TILE],  [8 * TILE, 12 * TILE],  // left tables lower
-      [22 * TILE, 8 * TILE],  [26 * TILE, 8 * TILE],  // right tables
-      [22 * TILE, 12 * TILE], [26 * TILE, 12 * TILE], // right tables lower
-      [8 * TILE,  13 * TILE], [15 * TILE, 13 * TILE], [22 * TILE, 13 * TILE], // bottom tables
-      [15 * TILE, 7.5 * TILE],  // island overhead light
+      [4 * TILE, 8 * TILE],   [8 * TILE, 8 * TILE],
+      [4 * TILE, 12 * TILE],  [8 * TILE, 12 * TILE],
+      [22 * TILE, 8 * TILE],  [26 * TILE, 8 * TILE],
+      [22 * TILE, 12 * TILE], [26 * TILE, 12 * TILE],
+      [8 * TILE,  13 * TILE], [15 * TILE, 13 * TILE], [22 * TILE, 13 * TILE],
+      [15 * TILE, 7.5 * TILE],
     ];
     lightPositions.forEach(([lx, ly]) => {
       lightGraphics.fillStyle(0xFF8800, 0.055);
       lightGraphics.fillCircle(lx, ly, 72);
     });
 
-    // "KITCHEN" label — centered over the island
     this.add.text(15 * TILE, 5.5 * TILE, 'KITCHEN', {
-      fontSize: '10px', color: '#C8920A', fontFamily: 'monospace',
-    } as Phaser.Types.GameObjects.Text.TextStyle).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.5);
+      fontSize: '11px', color: '#C8920A', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 2,
+    } as Phaser.Types.GameObjects.Text.TextStyle).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.6);
   }
 
   private buildExteriorDecor(): void {
-    // Moon rocks around exterior (rows 16-17)
     const rocks: Array<{ col: number; row: number; big: boolean }> = [
       { col: 1,  row: 16, big: true  },
       { col: 5,  row: 17, big: false },
@@ -500,7 +546,6 @@ export class GameScene extends Phaser.Scene {
     this.add.sprite(9 * TILE + TILE/2, 16 * TILE, 'obj_moon_flag').setDepth(3).setOrigin(0.5, 1);
     this.add.sprite(23 * TILE, 16 * TILE + 4, 'obj_lunar_rover').setDepth(3).setOrigin(0.5, 1);
 
-    // Footprints near door
     const footG = this.add.graphics().setDepth(1.5).setAlpha(0.5);
     footG.fillStyle(COLORS.MOON_DARK, 1);
     for (let i = 0; i < 8; i++) {
@@ -509,7 +554,6 @@ export class GameScene extends Phaser.Scene {
       footG.fillEllipse(fx, fy, 8, 5);
     }
 
-    // Craters
     const craterG = this.add.graphics().setDepth(0.5);
     [[4 * TILE, 16 * TILE + 14], [13 * TILE, 17 * TILE + 6], [27 * TILE, 17 * TILE + 10]].forEach(([cx, cy]) => {
       craterG.fillStyle(COLORS.MOON_DARK, 1); craterG.fillCircle(cx, cy, 10);
@@ -518,26 +562,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // DECORATION SYSTEM
+  // DECORATION / PLACEMENT SYSTEM
   // ─────────────────────────────────────────────────────────────────────
 
   private buildHardBlockedTiles(): void {
-    // Mark tiles occupied by fixed furniture so decorations can't overlap them.
-    // Single tables: definition col → world tile col+1
-    const singleTables = [[2,7],[6,7],[2,11],[6,11],[21,7],[25,7],[21,11],[25,11]];
-    singleTables.forEach(([c,r]) => {
-      this.hardBlockedTiles.add(`${c+1},${r}`);
-      this.hardBlockedTiles.add(`${c+1},${r-1}`); // north chair
-      this.hardBlockedTiles.add(`${c+1},${r+1}`); // south chair
+    // Mark tiles under owned furniture as decoration-blocked
+    const owned = new Set(this.shopState.ownedTableSlotIds ?? [0, 1, 2]);
+    TABLE_SLOT_DEFS.filter(s => owned.has(s.id)).forEach(slot => {
+      const c = slot.col;
+      const r = slot.row;
+      if (slot.type === 'single') {
+        this.hardBlockedTiles.add(`${c+1},${r}`);
+        this.hardBlockedTiles.add(`${c+1},${r-1}`);
+        this.hardBlockedTiles.add(`${c+1},${r+1}`);
+      } else {
+        this.hardBlockedTiles.add(`${c+1},${r}`);
+        this.hardBlockedTiles.add(`${c},${r-1}`);   this.hardBlockedTiles.add(`${c+2},${r-1}`);
+        this.hardBlockedTiles.add(`${c},${r+1}`);   this.hardBlockedTiles.add(`${c+2},${r+1}`);
+      }
     });
-    // Group tables: definition col → tile col+1
-    const groupTables = [[3,12],[10,12],[17,12],[22,12]];
-    groupTables.forEach(([c,r]) => {
-      this.hardBlockedTiles.add(`${c+1},${r}`);
-      this.hardBlockedTiles.add(`${c},${r-1}`); this.hardBlockedTiles.add(`${c+2},${r-1}`);
-      this.hardBlockedTiles.add(`${c},${r+1}`); this.hardBlockedTiles.add(`${c+2},${r+1}`);
-    });
-    // Cat beds
     [[1,13],[27,13],[1,5],[27,5]].forEach(([c,r]) => this.hardBlockedTiles.add(`${c},${r}`));
   }
 
@@ -587,22 +630,30 @@ export class GameScene extends Phaser.Scene {
       && !this.occupiedDecoTiles.has(key);
   }
 
-  private enterDecorateMode(): void {
-    if (this.isDecorateMode) return;
-    this.isDecorateMode = true;
-    this.decorateOverlayText = this.add.text(GAME_W / 2, 60, '✦ DECORATE MODE — D or ESC to exit', {
-      fontSize: '12px', color: '#FFD700', fontFamily: 'monospace',
+  private openStorePanel(): void {
+    if (this.isStorePanelOpen) return;
+    this.isStorePanelOpen = true;
+    // Freeze all physics bodies
+    this.customers.forEach(c => (c.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
+    this.employees.forEach(e => (e.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
+    this.cats.forEach(cat => (cat.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
+    (this.player.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0);
+    this.physics.world.pause();
+
+    this.decorateOverlayText = this.add.text(GAME_W / 2 - 150, 62, '✦ STORE — S/D or ESC to close', {
+      fontSize: '13px', color: '#FFD700', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(105).setAlpha(0);
     this.tweens.add({ targets: this.decorateOverlayText, alpha: 1, duration: 300 });
   }
 
-  private exitDecorateMode(): void {
-    if (!this.isDecorateMode) return;
-    this.isDecorateMode = false;
+  private closeStorePanel(): void {
+    if (!this.isStorePanelOpen) return;
+    this.isStorePanelOpen = false;
     this.pendingDecorationDef = null;
     this.ghostSprite?.destroy(); this.ghostSprite = null;
     this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
+    this.physics.world.resume();
   }
 
   private refreshGhostSprite(): void {
@@ -618,7 +669,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.pendingDecorationDef) {
       if (!this.isValidDecoTile(tileX, tileY)) {
-        this.showFloatingText(worldX, worldY - 16, 'Can\'t place here', '#FF6666');
+        this.showFloatingText(worldX, worldY - 16, "Can't place here", '#FF6666');
         return;
       }
       const def = this.pendingDecorationDef;
@@ -626,7 +677,6 @@ export class GameScene extends Phaser.Scene {
         this.showFloatingText(worldX, worldY - 16, 'Not enough ✦', '#FF6666');
         return;
       }
-      // Place decoration
       this.money -= def.cost;
       const pd: PlacedDecoration = { defId: def.id, tileX, tileY };
       if (!this.shopState.placedDecorations) this.shopState.placedDecorations = [];
@@ -644,7 +694,6 @@ export class GameScene extends Phaser.Scene {
       this.checkTierUp();
       this.emitUIUpdate();
     } else {
-      // Try to sell an existing decoration
       const key = `${tileX},${tileY}`;
       if (this.occupiedDecoTiles.has(key)) {
         const idx = (this.shopState.placedDecorations ?? []).findIndex(p => p.tileX === tileX && p.tileY === tileY);
@@ -675,7 +724,7 @@ export class GameScene extends Phaser.Scene {
 
   private showTierUpBanner(tierName: string): void {
     const banner = this.add.text(GAME_W / 2, GAME_H / 2 - 40, `★ ${tierName} ★\nNew menu items unlocked!`, {
-      fontSize: '20px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+      fontSize: '22px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 4, align: 'center',
     }).setOrigin(0.5).setDepth(200).setAlpha(0);
     this.tweens.add({
@@ -690,6 +739,82 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // STORE PURCHASES (from in-game store panel)
+  // ─────────────────────────────────────────────────────────────────────
+
+  private handleBuyTable(slotId: number): void {
+    const slot = TABLE_SLOT_DEFS.find(s => s.id === slotId);
+    if (!slot || slot.cost === 0) return;
+    if ((this.shopState.ownedTableSlotIds ?? []).includes(slotId)) return;
+    if (this.money < slot.cost) {
+      this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+      return;
+    }
+    this.money -= slot.cost;
+    if (!this.shopState.ownedTableSlotIds) this.shopState.ownedTableSlotIds = [];
+    this.shopState.ownedTableSlotIds.push(slotId);
+    this.addTableToWorld(slot);
+    this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, `${slot.name} added!`, '#AAFFAA');
+    this.playChime();
+    this.emitUIUpdate();
+  }
+
+  private handleHireStaff(role: EmployeeRole): void {
+    const def = EMPLOYEE_TYPES.find(e => e.role === role);
+    if (!def) return;
+    const current = this.getStaffCount(role);
+    if (current >= def.max) return;
+    if (this.money < def.cost) {
+      this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+      return;
+    }
+    this.money -= def.cost;
+    this.incrementStaff(role);
+
+    if (role === 'waiter') {
+      this.spawnOneEmployee(this.shopState.employees - 1);
+    }
+
+    this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} hired!`, '#60FF88');
+    this.playChime();
+    this.emitUIUpdate();
+  }
+
+  private handleBuyKitchen(upgradeId: string): void {
+    if (upgradeId === 'extra_machines') {
+      if (this.shopState.extraMachines >= 1) return;
+      if (this.money < 180) {
+        this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+        return;
+      }
+      this.money -= 180;
+      this.shopState.extraMachines = 1;
+      this.addExtraKitchenStations();
+      this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, 'Extra machines added!', '#AAFFAA');
+      this.playChime();
+      this.emitUIUpdate();
+    }
+  }
+
+  private getStaffCount(role: EmployeeRole): number {
+    switch (role) {
+      case 'waiter':  return this.shopState.employees ?? 0;
+      case 'cook':    return this.shopState.cooks ?? 0;
+      case 'guard':   return this.shopState.guards ?? 0;
+      case 'caterer': return this.shopState.caterers ?? 0;
+    }
+  }
+
+  private incrementStaff(role: EmployeeRole): void {
+    switch (role) {
+      case 'waiter':  this.shopState.employees = (this.shopState.employees ?? 0) + 1; break;
+      case 'cook':    this.shopState.cooks = (this.shopState.cooks ?? 0) + 1; break;
+      case 'guard':   this.shopState.guards = (this.shopState.guards ?? 0) + 1; break;
+      case 'caterer': this.shopState.caterers = (this.shopState.caterers ?? 0) + 1; break;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // CATS
   // ─────────────────────────────────────────────────────────────────────
 
@@ -698,7 +823,6 @@ export class GameScene extends Phaser.Scene {
       { col: 2,  row: 12 }, { col: 26, row: 12 },
       { col: 2,  row: 6  }, { col: 26, row: 6  },
     ];
-    // Cats roam the open dining floor (stays clear of the island)
     const bounds = new Phaser.Geom.Rectangle(TILE, 11 * TILE, 27 * TILE, 3 * TILE);
 
     catData.forEach((data, i) => {
@@ -717,25 +841,49 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private spawnEmployees(): void {
+    for (let i = 0; i < (this.shopState.employees ?? 0); i++) {
+      this.spawnOneEmployee(i);
+    }
+  }
+
+  private spawnOneEmployee(index: number): void {
     const empPositions = [
-      { col: 3, row: 12 }, { col: 25, row: 12 },
+      { col: 3, row: 12 }, { col: 25, row: 12 }, { col: 6, row: 11 },
     ];
-    for (let i = 0; i < this.shopState.employees; i++) {
-      const pos = empPositions[i % empPositions.length];
-      const emp = new Employee(
-        this, pos.col * TILE + TILE/2, pos.row * TILE + TILE/2,
-        i, EMPLOYEE_NAMES[i % EMPLOYEE_NAMES.length],
-      );
-      emp.onTakeOrder = (customerId) => {
-        const c = this.customers.find(cu => cu.customerId === customerId);
-        if (c && c.aiState === 'waiting_order') {
-          c.takeOrder();
-          this.showFloatingText(emp.x, emp.y - 30, 'Order taken!', '#AAFFAA');
-          this.playPop();
-        }
-      };
-      this.physics.add.collider(emp, this.wallGroup);
-      this.employees.push(emp);
+    const pos = empPositions[index % empPositions.length];
+    const emp = new Employee(
+      this, pos.col * TILE + TILE/2, pos.row * TILE + TILE/2,
+      this.employees.length, EMPLOYEE_NAMES[this.employees.length % EMPLOYEE_NAMES.length],
+    );
+    emp.onTakeOrder = (customerId) => {
+      const c = this.customers.find(cu => cu.customerId === customerId);
+      if (c && c.aiState === 'waiting_order') {
+        c.takeOrder();
+        this.showFloatingText(emp.x, emp.y - 30, 'Order taken!', '#AAFFAA');
+        this.playPop();
+      }
+    };
+    this.physics.add.collider(emp, this.wallGroup);
+    this.employees.push(emp);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // AUTO-COOK (Cook employees)
+  // ─────────────────────────────────────────────────────────────────────
+
+  private tryAutoCook(): void {
+    for (const stn of this.stations) {
+      if (stn.isCooking) continue;
+      const pending = this.getPendingOrderForStation(stn.type);
+      if (pending) {
+        stn.isCooking = true;
+        stn.cookProgress = 0;
+        stn.cookTargetMs = pending.item.prepTime;
+        stn.currentOrderId = pending.customerId;
+        this.startCookingVisual(stn);
+        this.playCook();
+        return;
+      }
     }
   }
 
@@ -752,7 +900,6 @@ export class GameScene extends Phaser.Scene {
   private spawnCustomer(): void {
     if (this.dayEnded) return;
 
-    // 28% chance of spawning a pair (group)
     const tryGroup = Math.random() < 0.28;
     if (tryGroup) {
       const groupTable = this.tables.find(t => t.seats.filter(s => !s.occupied).length >= 2);
@@ -762,7 +909,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Single customer
     const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
     if (!freeTable) return;
     const freeSeat = freeTable.seats.find(s => !s.occupied)!;
@@ -798,7 +944,6 @@ export class GameScene extends Phaser.Scene {
       seatX, seatY,
       GAME_W / 2, GAME_H + 20,
     );
-    // Customer pathfinder: routes around island exterior (kitchen not walkable for them)
     customer.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
     customer.getAvailableMenuItems = () => this.getEffectiveMenu();
     return customer;
@@ -813,7 +958,6 @@ export class GameScene extends Phaser.Scene {
     const py = this.player.y;
     const REACH = 52;
 
-    // Trash can (discard carried food)
     if (this.player.isCarryingFood()) {
       const trashDist = Phaser.Math.Distance.Between(px, py, this.trashCanX, this.trashCanY);
       if (trashDist < REACH) {
@@ -823,7 +967,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Kitchen stations
     for (const stn of this.stations) {
       const dist = Phaser.Math.Distance.Between(px, py, stn.worldX, py);
       const vertDist = Math.abs(py - (stn.worldY + TILE));
@@ -840,7 +983,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Customers
     for (const c of this.customers) {
       if (!c.active) continue;
       const dist = Phaser.Math.Distance.Between(px, py, c.x, c.y);
@@ -857,7 +999,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Cats
     for (const cat of this.cats) {
       const dist = Phaser.Math.Distance.Between(px, py, cat.x, cat.y);
       if (dist < REACH) {
@@ -925,7 +1066,8 @@ export class GameScene extends Phaser.Scene {
         const carried = this.player.dropFood();
         if (carried && c.order?.id === carried) {
           c.receiveFood();
-          const earned = c.getTip();
+          const catererBonus = 1 + (this.shopState.caterers ?? 0) * 0.25;
+          const earned = Math.round(c.getTip() * catererBonus);
           this.money += earned;
           this.reputation = Math.min(100, this.reputation + 1);
           this.totalServed++;
@@ -1016,23 +1158,24 @@ export class GameScene extends Phaser.Scene {
     if (!this.interactionPrompt) {
       const container = this.add.container(0, 0).setDepth(100);
       const bg = this.add.graphics();
-      bg.fillStyle(COLORS.UI_PANEL, 0.88);
-      bg.fillRoundedRect(0, 0, 220, 28, 6);
-      bg.lineStyle(1, COLORS.UI_GOLD, 0.7);
-      bg.strokeRoundedRect(0, 0, 220, 28, 6);
-      const prompt = this.add.sprite(10, 14, 'ui_e_prompt').setOrigin(0, 0.5).setScale(0.9);
-      const txt = this.add.text(36, 14, '', {
-        fontSize: '11px', color: '#FFEEDD', fontFamily: 'monospace',
+      bg.fillStyle(COLORS.UI_PANEL, 0.92);
+      bg.fillRoundedRect(0, 0, 240, 32, 6);
+      bg.lineStyle(1, COLORS.UI_GOLD, 0.8);
+      bg.strokeRoundedRect(0, 0, 240, 32, 6);
+      const prompt = this.add.sprite(10, 16, 'ui_e_prompt').setOrigin(0, 0.5).setScale(0.9);
+      const txt = this.add.text(38, 16, '', {
+        fontSize: '12px', color: '#FFEEDD', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0, 0.5);
       container.add([bg, prompt, txt]);
       container.setData('txt', txt);
-      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 220, 28), Phaser.Geom.Rectangle.Contains);
+      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 240, 32), Phaser.Geom.Rectangle.Contains);
       container.on('pointerdown', () => this.handleInteraction());
       this.interactionPrompt = container;
     }
     const txt = this.interactionPrompt.getData('txt') as Phaser.GameObjects.Text;
     txt.setText(ctx.label);
-    this.interactionPrompt.setPosition(this.player.x - 110, this.player.y - 52);
+    this.interactionPrompt.setPosition(this.player.x - 120, this.player.y - 56);
     this.interactionPrompt.setVisible(true);
   }
 
@@ -1069,10 +1212,10 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: overlay, alpha: 0.78, duration: 1000 });
 
     const cx = GAME_W / 2;
-    const panelX = cx - 190;
-    const panelY = 62;
-    const panelW = 380;
-    const panelH = 510;
+    const panelX = cx - 200;
+    const panelY = 50;
+    const panelW = 400;
+    const panelH = 500;
 
     const panel = this.add.graphics().setDepth(201);
     panel.fillStyle(COLORS.UI_PANEL, 1);
@@ -1083,95 +1226,96 @@ export class GameScene extends Phaser.Scene {
     const avgCatHappiness = this.cats.reduce((s, c) => s + c.happiness, 0) / Math.max(1, this.cats.length);
 
     const lines = [
-      { text: `Day ${this.day} Complete!`,          size: '22px', color: '#FFD700', y: 102 },
-      { text: `Customers served: ${this.totalServed}`, size: '13px', color: '#FFEEDD', y: 146 },
-      { text: `Reputation: ${this.reputation} / 100`, size: '13px', color: '#FFE566', y: 168 },
-      { text: `Cat happiness: ${Math.round(avgCatHappiness)}%`, size: '13px', color: '#FF9AB0', y: 190 },
-      { text: `Bank balance: ${this.money} ✦`,      size: '15px', color: '#FFD700', y: 218 },
+      { text: `Day ${this.day} Complete!`,               size: '22px', color: '#FFD700', y: 88 },
+      { text: `Customers served: ${this.totalServed}`,   size: '13px', color: '#FFEEDD', y: 130 },
+      { text: `Reputation: ${this.reputation} / 100`,    size: '13px', color: '#FFE566', y: 152 },
+      { text: `Cat happiness: ${Math.round(avgCatHappiness)}%`, size: '13px', color: '#FF9AB0', y: 174 },
+      { text: `Bank balance: ${this.money} ✦`,           size: '16px', color: '#FFD700', y: 200 },
     ];
     lines.forEach(l => {
       const t = this.add.text(cx, l.y, l.text, {
         fontSize: l.size, color: l.color, fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5).setDepth(202).setAlpha(0);
       this.tweens.add({ targets: t, alpha: 1, duration: 500, delay: 200 });
     });
 
-    // Separator
     const sep = this.add.graphics().setDepth(202);
     sep.lineStyle(1, COLORS.UI_GOLD, 0.4);
-    sep.lineBetween(cx - 155, 248, cx + 155, 248);
+    sep.lineBetween(cx - 165, 228, cx + 165, 228);
 
-    this.add.text(cx, 255, 'Shop', {
-      fontSize: '14px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+    this.add.text(cx, 234, 'Cat Shop', {
+      fontSize: '15px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setDepth(202);
 
-    // Shop items
-    this.buildShopButtons(cx, 280);
+    // Cat shop only (tables/staff/kitchen are in the in-game store)
+    this.buildCatShopButtons(cx, 260);
 
-    // Next Day button
-    const btnY = 494;
+    const storeHint = this.add.text(cx, 388, '— Press S / D during the day to open the Store —', {
+      fontSize: '10px', color: '#887755', fontFamily: 'monospace',
+    }).setOrigin(0.5, 0).setDepth(202);
+    void storeHint;
+
+    const btnY = 462;
     const btn = this.add.graphics().setDepth(202);
     const drawBtn = (hover: boolean) => {
       btn.clear();
       btn.fillStyle(hover ? 0xCC8800 : COLORS.UI_PANEL_LIGHT, 1);
-      btn.fillRoundedRect(cx - 90, btnY - 20, 180, 42, 8);
+      btn.fillRoundedRect(cx - 90, btnY - 20, 180, 44, 8);
       btn.lineStyle(2, COLORS.UI_GOLD, 1);
-      btn.strokeRoundedRect(cx - 90, btnY - 20, 180, 42, 8);
+      btn.strokeRoundedRect(cx - 90, btnY - 20, 180, 44, 8);
     };
     drawBtn(false);
 
-    const btnTxt = this.add.text(cx, btnY, 'Next Day', {
-      fontSize: '17px', color: '#FFD700', fontFamily: 'monospace',
+    const btnTxt = this.add.text(cx, btnY, 'Next Day  →', {
+      fontSize: '18px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(203);
 
-    const btnZone = this.add.zone(cx, btnY, 180, 42).setInteractive({ useHandCursor: true }).setDepth(204);
+    const btnZone = this.add.zone(cx, btnY, 180, 44).setInteractive({ useHandCursor: true }).setDepth(204);
     btnZone.on('pointerover', () => { drawBtn(true); btnTxt.setColor('#FFFFFF'); });
     btnZone.on('pointerout', () => { drawBtn(false); btnTxt.setColor('#FFD700'); });
     btnZone.on('pointerdown', () => this.startNextDay());
   }
 
-  private buildShopButtons(cx: number, topY: number): void {
+  private buildCatShopButtons(cx: number, topY: number): void {
     this.shopRefreshFns = [];
 
-    // 2×2 grid: [cat_toy, cat_tree] / [employee, extra_machines]
     const GRID = [
-      { bx: cx - 60, by: topY },
-      { bx: cx + 60, by: topY },
-      { bx: cx - 60, by: topY + 110 },
-      { bx: cx + 60, by: topY + 110 },
+      { bx: cx - 80, by: topY },
+      { bx: cx + 80, by: topY },
     ];
 
     SHOP_ITEMS.forEach((item, i) => {
       const bx = GRID[i].bx;
-      const bw = 110, bh = 100;
+      const bw = 130, bh = 108;
       const by = GRID[i].by;
 
       const bg = this.add.graphics().setDepth(202);
 
-      const nameTxt = this.add.text(bx, by + 10, item.name, {
-        fontSize: '9px', color: '#FFEEDD', fontFamily: 'monospace', align: 'center', wordWrap: { width: bw - 8 },
+      const nameTxt = this.add.text(bx, by + 12, item.name, {
+        fontSize: '11px', color: '#FFEEDD', fontFamily: 'monospace', align: 'center',
+        wordWrap: { width: bw - 8 }, stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5, 0).setDepth(203);
 
-      const costTxt = this.add.text(bx, by + 36, `${item.cost} ✦`, {
-        fontSize: '12px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+      const costTxt = this.add.text(bx, by + 38, `${item.cost} ✦`, {
+        fontSize: '14px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5, 0).setDepth(203);
 
-      const countTxt = this.add.text(bx, by + 56, '', {
-        fontSize: '9px', color: '#AAAAAA', fontFamily: 'monospace',
+      const countTxt = this.add.text(bx, by + 60, '', {
+        fontSize: '10px', color: '#AAAAAA', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 1,
       }).setOrigin(0.5, 0).setDepth(203);
 
-      const descTxt = this.add.text(bx, by + 72, item.desc, {
-        fontSize: '7px', color: '#778877', fontFamily: 'monospace', align: 'center', wordWrap: { width: bw - 8 },
+      const descTxt = this.add.text(bx, by + 78, item.desc, {
+        fontSize: '8px', color: '#778877', fontFamily: 'monospace', align: 'center',
+        wordWrap: { width: bw - 8 },
       }).setOrigin(0.5, 0).setDepth(203);
 
       const zone = this.add.zone(bx, by + bh / 2, bw, bh).setInteractive({ useHandCursor: true }).setDepth(204);
 
-      const getCount = () => {
-        if (item.id === 'cat_toy') return this.shopState.catToys;
-        if (item.id === 'cat_tree') return this.shopState.catTrees;
-        if (item.id === 'employee') return this.shopState.employees;
-        return this.shopState.extraMachines;
-      };
+      const getCount = () => item.id === 'cat_toy' ? this.shopState.catToys : this.shopState.catTrees;
       const canBuy = () => this.money >= item.cost && getCount() < item.max;
 
       const refresh = (hover = false) => {
@@ -1182,7 +1326,6 @@ export class GameScene extends Phaser.Scene {
         bg.fillRoundedRect(bx - bw/2, by, bw, bh, 6);
         bg.lineStyle(1, affordable ? COLORS.UI_GOLD : 0x444422, 1);
         bg.strokeRoundedRect(bx - bw/2, by, bw, bh, 6);
-
         const a = affordable ? 1 : 0.45;
         nameTxt.setAlpha(a);
         costTxt.setAlpha(a);
@@ -1200,10 +1343,7 @@ export class GameScene extends Phaser.Scene {
         if (!canBuy()) return;
         this.money -= item.cost;
         if (item.id === 'cat_toy') this.shopState.catToys++;
-        else if (item.id === 'cat_tree') this.shopState.catTrees++;
-        else if (item.id === 'employee') this.shopState.employees++;
-        else this.shopState.extraMachines++;
-
+        else this.shopState.catTrees++;
         this.shopRefreshFns.forEach(fn => fn(false));
         this.showFloatingText(bx, by - 10, `-${item.cost} ✦`, '#FF8888');
         this.emitUIUpdate();
@@ -1216,6 +1356,10 @@ export class GameScene extends Phaser.Scene {
     this.dayProgress = 0;
     this.dayEnded = false;
     this.dayEndShown = false;
+
+    // Guard bonus at day start
+    const guardBonus = (this.shopState.guards ?? 0) * 5;
+    if (guardBonus > 0) this.reputation = Math.min(100, this.reputation + guardBonus);
 
     this.saveCurrentState();
 
@@ -1275,10 +1419,11 @@ export class GameScene extends Phaser.Scene {
 
   private showFloatingText(x: number, y: number, text: string, color: string): void {
     const t = this.add.text(x, y, text, {
-      fontSize: '13px', color, fontFamily: 'monospace', fontStyle: 'bold',
+      fontSize: '14px', color, fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(100);
     this.tweens.add({
-      targets: t, y: y - 32, alpha: 0,
+      targets: t, y: y - 36, alpha: 0,
       duration: 1400, ease: 'Quad.easeOut',
       onComplete: () => t.destroy(),
     });
@@ -1293,33 +1438,26 @@ export class GameScene extends Phaser.Scene {
     this.scene.start('MainMenuScene');
   }
 
-  /**
-   * Tap handler for touch/click. Identifies the nearest relevant game object
-   * at the tap position, builds a waypoint path (routing through the counter
-   * opening when crossing between kitchen and dining), and queues an auto-walk
-   * that fires handleInteraction() on arrival.
-   */
   private handleTap(pointer: Phaser.Input.Pointer): void {
     if (this.dayEnded) return;
-    // In decorate mode, route clicks to the placement handler (ignore HUD + decorate panel areas)
-    if (this.isDecorateMode) {
-      if (pointer.y < 58) return;
-      if (pointer.x > GAME_W - 220) return; // decoration panel area
-      this.handleDecorateClick(pointer.worldX, pointer.worldY);
+
+    if (this.isStorePanelOpen) {
+      // Allow clicks in the game area (left of store panel) for decoration placement
+      if (this.pendingDecorationDef && pointer.y > 58 && pointer.x < GAME_W - 300) {
+        this.handleDecorateClick(pointer.worldX, pointer.worldY);
+      }
       return;
     }
-    // Ignore taps in the HUD strip or orders panel so UIScene buttons don't
-    // accidentally trigger a world walk.
+
     if (pointer.y < 58) return;
     if (pointer.x > GAME_W - 160 && pointer.y < 260) return;
 
     const wx = pointer.worldX;
     const wy = pointer.worldY;
-    const TAP_R = TILE * 1.8; // generous tap radius
+    const TAP_R = TILE * 1.8;
 
     this.showTapIndicator(wx, wy);
 
-    // 1. Trash can (only relevant when carrying food)
     if (this.player.isCarryingFood()) {
       if (Phaser.Math.Distance.Between(wx, wy, this.trashCanX, this.trashCanY) < TAP_R * 1.2) {
         const pts = this.buildWaypointsTo(this.trashCanX, this.trashCanY + TILE * 0.5);
@@ -1331,7 +1469,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // 2. Customers — take order or deliver food
     for (const c of this.customers) {
       if (!c.active) continue;
       if (Phaser.Math.Distance.Between(wx, wy, c.x, c.y) < TAP_R) {
@@ -1340,8 +1477,6 @@ export class GameScene extends Phaser.Scene {
           && this.player.isCarryingFood()
           && c.order?.id === this.player.getCarriedFoodId();
         if (wantOrder || wantDeliver) {
-          // Target slightly south of the customer so the player approaches
-          // from below the table rather than walking into its corner.
           const pts = this.buildWaypointsTo(c.x, c.y + 18);
           this.player.setMoveTargets(pts, () => {
             this.currentInteraction = this.scanInteractables();
@@ -1352,10 +1487,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // 3. Kitchen stations — start cooking or pick up finished food
     for (const stn of this.stations) {
       if (Phaser.Math.Distance.Between(wx, wy, stn.worldX, stn.worldY) < TAP_R * 1.5) {
-        // Stand just below the station (still in kitchen, within scan reach)
         const destY = stn.worldY + 16;
         const pts = this.buildWaypointsTo(stn.worldX, destY);
         this.player.setMoveTargets(pts, () => {
@@ -1366,7 +1499,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // 4. Cats
     for (const cat of this.cats) {
       if (Phaser.Math.Distance.Between(wx, wy, cat.x, cat.y) < TAP_R) {
         const pts = this.buildWaypointsTo(cat.x, cat.y);
@@ -1378,24 +1510,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // 5. Free-walk to tapped position
     this.player.setMoveTargets(this.buildWaypointsTo(wx, wy));
   }
 
-  /**
-   * Returns waypoints that route through the counter opening (cols 13-17)
-   * whenever the destination is on the opposite side of the service counter.
-   */
-  /** Build the A* pathfinder from the static tile map + furniture physics bodies. */
   private buildPathfinder(): void {
-    // Player pathfinder — kitchen (6) is walkable so tap-to-move works inside the island.
     this.pathfinder = new Pathfinder(MAP, TILE, new Set([1, 5, 6]));
-
-    // Customer pathfinder — kitchen (6) NOT walkable so customers route around the island
-    // exterior and never cut through the kitchen as a shortcut.
     this.customerPathfinder = new Pathfinder(MAP, TILE, new Set([1, 5]));
 
-    // Mark furniture bodies as blocked in both pathfinders.
     this.furnitureGroup.getChildren().forEach(child => {
       const body = (child as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.StaticBody;
       if (body) {
@@ -1442,7 +1563,11 @@ export class GameScene extends Phaser.Scene {
         } else {
           status = 'queued';
         }
-        return { customerId: c.customerId, tableId: c.tableId, itemName: c.order?.name ?? '?', stationType: c.order?.station ?? '', status, progress };
+        return {
+          customerId: c.customerId, tableId: c.tableId,
+          itemName: c.order?.name ?? '?', stationType: c.order?.station ?? '',
+          status, progress,
+        };
       });
 
     const tier = this.getCurrentTier();
@@ -1458,6 +1583,13 @@ export class GameScene extends Phaser.Scene {
       ambiance: this.computeAmbiance(),
       tierName: tier.name,
       tierLevel: tier.level,
+      // Store panel data
+      ownedTableSlotIds: [...(this.shopState.ownedTableSlotIds ?? [])],
+      employees: this.shopState.employees ?? 0,
+      cooks: this.shopState.cooks ?? 0,
+      guards: this.shopState.guards ?? 0,
+      caterers: this.shopState.caterers ?? 0,
+      extraMachines: this.shopState.extraMachines ?? 0,
     });
   }
 
@@ -1468,8 +1600,8 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.dayEnded && this.dayEndShown) return;
 
-    // Ghost cursor in decorate mode
-    if (this.isDecorateMode && this.ghostSprite && this.pendingDecorationDef) {
+    // Ghost cursor for decor placement (works while store is open)
+    if (this.isStorePanelOpen && this.ghostSprite && this.pendingDecorationDef) {
       const ptr = this.input.activePointer;
       const tileX = Math.floor(ptr.worldX / TILE);
       const tileY = Math.floor(ptr.worldY / TILE);
@@ -1477,15 +1609,11 @@ export class GameScene extends Phaser.Scene {
       this.ghostSprite.setTint(this.isValidDecoTile(tileX, tileY) ? 0x88FF88 : 0xFF4444);
     }
 
-    // Pause game simulation while in decorate mode
-    if (this.isDecorateMode) {
-      this.player.update();
-      return;
-    }
+    // Game is fully frozen while store panel is open
+    if (this.isStorePanelOpen) return;
 
     this.player.update();
 
-    // Cat updates
     const customerPositions = this.customers
       .filter(c => c.active && (c.aiState === 'seated' || c.aiState === 'eating'))
       .map(c => ({ x: c.x, y: c.y, id: c.customerId }));
@@ -1501,23 +1629,19 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // Employee updates
     const waitingForOrders = this.customers
       .filter(c => c.active && c.aiState === 'waiting_order')
       .map(c => ({ customerId: c.customerId, x: c.x, y: c.y }));
     this.employees.forEach(emp => emp.update(delta, waitingForOrders, this.employeeAssignedIds));
 
-    // Customer updates
     for (let i = this.customers.length - 1; i >= 0; i--) {
       const c = this.customers[i];
       c.update(delta);
       if (c.aiState === 'gone') {
-        // Free their seat
         for (const table of this.tables) {
           const seat = table.seats.find(s => s.customerId === c.customerId);
           if (seat) { seat.occupied = false; seat.customerId = null; break; }
         }
-        // Remove from employee tracking
         this.employeeAssignedIds.delete(c.customerId);
         c.cleanup();
         c.destroy();
@@ -1527,14 +1651,21 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Customer spawn timer
     this.customerSpawnTimer -= delta;
     if (this.customerSpawnTimer <= 0 && !this.dayEnded) {
       this.spawnCustomer();
       this.scheduleNextCustomer();
     }
 
-    // Station cooking progress
+    // Cook employee: auto-start cooking
+    if ((this.shopState.cooks ?? 0) > 0) {
+      this.autoCookTimer -= delta;
+      if (this.autoCookTimer <= 0) {
+        this.autoCookTimer = Math.max(800, 4000 - (this.shopState.cooks ?? 0) * 1200);
+        this.tryAutoCook();
+      }
+    }
+
     this.stations.forEach(stn => {
       if (stn.isCooking && stn.cookProgress < 1) {
         stn.cookProgress = Math.min(1, stn.cookProgress + delta / stn.cookTargetMs);
@@ -1551,15 +1682,11 @@ export class GameScene extends Phaser.Scene {
           const item = this.getCookingItem(stn);
           if (item && !stn.readyFoodSprite) {
             stn.readyFoodSprite = this.add.sprite(stn.worldX, stn.worldY - 42, `food_${item.id}`)
-              .setScale(2.0)
-              .setDepth(22);
+              .setScale(2.0).setDepth(22);
             this.tweens.add({
               targets: stn.readyFoodSprite,
               y: stn.worldY - 48,
-              duration: 500,
-              yoyo: true,
-              repeat: -1,
-              ease: 'Sine.easeInOut',
+              duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
             });
           }
           stn.sprite.setTint(0x88FF88);
@@ -1569,7 +1696,6 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Interaction scanning
     const ctx = this.scanInteractables();
     this.currentInteraction = ctx;
     if (ctx.type !== 'none') {
@@ -1578,19 +1704,16 @@ export class GameScene extends Phaser.Scene {
       this.hideInteractionPrompt();
     }
 
-    // Day progress
     this.dayProgress = Math.min(1, this.dayProgress + delta / DAY_DURATION_MS);
     const phase = this.dayProgress < 0.33 ? 'morning' : this.dayProgress < 0.66 ? 'afternoon' : 'evening';
     if (phase !== this.dayPhase) this.dayPhase = phase;
 
-    // Frequent UI refresh for orders panel
     this.uiRefreshTimer -= delta;
     if (this.uiRefreshTimer <= 0) {
       this.uiRefreshTimer = 500;
       this.emitUIUpdate();
     }
 
-    // Throttled autosave
     this.autoSaveTimer -= delta;
     if (this.autoSaveTimer <= 0) {
       this.autoSaveTimer = 10000;
