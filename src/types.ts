@@ -1,4 +1,4 @@
-import { MenuId } from './constants';
+import { MenuId, PlacedDecoration } from './constants';
 
 export interface MenuItemDef {
   id: MenuId;
@@ -51,10 +51,12 @@ export interface ShopState {
   catTrees: number;
   employees: number;
   extraMachines: number;
+  placedDecorations: PlacedDecoration[];
 }
 
 export interface OrderInfo {
   customerId: number;
+  tableId: number;
   itemName: string;
   stationType: string;
   status: 'queued' | 'cooking' | 'ready' | 'carrying';

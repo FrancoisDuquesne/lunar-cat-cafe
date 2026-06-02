@@ -3,7 +3,7 @@ import { CAT_NAMES } from '../constants';
 
 const SAVE_KEY = 'lunar_cat_cafe_v2';
 
-const DEFAULT_SHOP: ShopState = { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0 };
+const DEFAULT_SHOP: ShopState = { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0, placedDecorations: [] };
 
 export function defaultSaveState(): GameSaveState {
   return {
@@ -36,6 +36,7 @@ export function loadGame(): GameSaveState | null {
     const { state } = JSON.parse(raw) as { state: GameSaveState };
     if (!state.shop) state.shop = { ...DEFAULT_SHOP };
     if (state.shop.extraMachines === undefined) state.shop.extraMachines = 0;
+    if (!state.shop.placedDecorations) state.shop.placedDecorations = [];
     return state;
   } catch (e) {
     console.warn('Load failed:', e);

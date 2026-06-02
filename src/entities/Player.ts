@@ -11,6 +11,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private carriedFoodSprite: Phaser.GameObjects.Sprite | null = null;
   private isInteracting = false;
 
+  // Auto-walk queue: player walks each waypoint in order, then fires callback
+  private moveTargets: Array<{ x: number; y: number }> = [];
+  private moveCallback?: () => void;
+  private static readonly ARRIVE_DIST = 40;
+
+  // Stuck detection: give up if no movement for too long
+  private stuckTimer = 0;
+  private prevX = 0;
+  private prevY = 0;
+
   // One-shot interact callback; scene sets this
   onInteract?: () => void;
 
@@ -20,8 +30,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setSize(12, 12);
-    body.setOffset(2, 12);
+    body.setCircle(6, 2, 12); // circle slides around corners instead of snagging
     this.setDepth(10);
     this.setOrigin(0.5, 0.9);
 
@@ -42,6 +51,21 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.onInteract) this.onInteract();
   }
 
+  /** Queue a series of waypoints. Callback fires once the last one is reached. */
+  setMoveTargets(targets: Array<{ x: number; y: number }>, callback?: () => void): void {
+    this.moveTargets = [...targets];
+    this.moveCallback = callback;
+    this.stuckTimer = 0;
+    this.prevX = this.x;
+    this.prevY = this.y;
+  }
+
+  clearMoveTargets(): void {
+    this.moveTargets = [];
+    this.moveCallback = undefined;
+    this.stuckTimer = 0;
+  }
+
   update(): void {
     const { left: cLeft, right: cRight, up: cUp, down: cDown } = this.cursors;
     const left  = cLeft.isDown  || this.wasd.left.isDown;
@@ -49,30 +73,62 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const up    = cUp.isDown    || this.wasd.up.isDown;
     const down  = cDown.isDown  || this.wasd.down.isDown;
 
-    let vx = (left ? -1 : right ? 1 : 0) * PLAYER_SPEED;
-    let vy = (up   ? -1 : down  ? 1 : 0) * PLAYER_SPEED;
+    const body = this.body as Phaser.Physics.Arcade.Body;
 
-    // Normalize diagonal
-    if (vx !== 0 && vy !== 0) {
-      vx *= 0.707;
-      vy *= 0.707;
+    if (left || right || up || down) {
+      // Keyboard always takes over and cancels auto-walk
+      this.clearMoveTargets();
+      let vx = (left ? -1 : right ? 1 : 0) * PLAYER_SPEED;
+      let vy = (up   ? -1 : down  ? 1 : 0) * PLAYER_SPEED;
+      if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
+      body.setVelocity(vx, vy);
+      if      (vx < 0) { this.facing = 'left';  this.setTexture('player_side'); this.setFlipX(true);  }
+      else if (vx > 0) { this.facing = 'right'; this.setTexture('player_side'); this.setFlipX(false); }
+      else if (vy < 0) { this.facing = 'up';    this.setTexture('player_up');   this.setFlipX(false); }
+      else if (vy > 0) { this.facing = 'down';  this.setTexture('player_down'); this.setFlipX(false); }
+    } else if (this.moveTargets.length > 0) {
+      const t = this.moveTargets[0];
+      const dx = t.x - this.x;
+      const dy = t.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < Player.ARRIVE_DIST) {
+        this.stuckTimer = 0;
+        this.moveTargets.shift();
+        if (this.moveTargets.length === 0) {
+          const cb = this.moveCallback;
+          this.moveCallback = undefined;
+          cb?.();
+        }
+      } else {
+        body.setVelocity((dx / dist) * PLAYER_SPEED, (dy / dist) * PLAYER_SPEED);
+        if (Math.abs(dx) > Math.abs(dy)) {
+          this.facing = dx < 0 ? 'left' : 'right';
+          this.setTexture('player_side');
+          this.setFlipX(dx < 0);
+        } else {
+          this.facing = dy < 0 ? 'up' : 'down';
+          this.setTexture(dy < 0 ? 'player_up' : 'player_down');
+          this.setFlipX(false);
+        }
+
+        // Give up if physically blocked for too long (obstacle in path)
+        const moved = (this.x - this.prevX) ** 2 + (this.y - this.prevY) ** 2;
+        if (moved < 0.5) {
+          this.stuckTimer += 16; // ~1 frame at 60fps; good enough without delta
+          if (this.stuckTimer > 500) this.clearMoveTargets();
+        } else {
+          this.stuckTimer = 0;
+        }
+        this.prevX = this.x;
+        this.prevY = this.y;
+      }
+    } else {
+      body.setVelocity(0, 0);
     }
 
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(vx, vy);
-
-    // Update facing direction and texture
-    if (vx < 0) { this.facing = 'left'; this.setTexture('player_side'); this.setFlipX(true); }
-    else if (vx > 0) { this.facing = 'right'; this.setTexture('player_side'); this.setFlipX(false); }
-    else if (vy < 0) { this.facing = 'up'; this.setTexture('player_up'); this.setFlipX(false); }
-    else if (vy > 0) { this.facing = 'down'; this.setTexture('player_down'); this.setFlipX(false); }
-
-    // Update depth for Y-sorting
     this.setDepth(10 + this.y / 1000);
-
-    // Update carried food position
     if (this.carriedFoodSprite) {
-      this.carriedFoodSprite.setPosition(this.x + 10, this.y - 18);
+      this.carriedFoodSprite.setPosition(this.x + 10, this.y - 32);
       this.carriedFoodSprite.setDepth(this.depth + 0.1);
     }
   }
@@ -81,17 +137,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.carriedFoodId = itemId;
     const texKey = `food_${itemId}`;
     if (this.carriedFoodSprite) this.carriedFoodSprite.destroy();
-    this.carriedFoodSprite = this.scene.add.sprite(this.x + 10, this.y - 18, texKey);
+    this.carriedFoodSprite = this.scene.add.sprite(this.x + 10, this.y - 32, texKey);
+    this.carriedFoodSprite.setScale(2.2);
     this.carriedFoodSprite.setDepth(this.depth + 0.1);
-    // Bobbing tween
-    this.scene.tweens.add({
-      targets: this.carriedFoodSprite,
-      y: '-=4',
-      duration: 600,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
   }
 
   dropFood(): string | null {

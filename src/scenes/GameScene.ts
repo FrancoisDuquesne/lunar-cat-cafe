@@ -1,36 +1,44 @@
 import Phaser from 'phaser';
-import { TILE, GAME_W, GAME_H, MAP_COLS, MAP_ROWS, COLORS, MENU_ITEMS, DAY_DURATION_MS, CUSTOMER_SPAWN_MS, SHOP_ITEMS, EMPLOYEE_NAMES } from '../constants';
+import { TILE, GAME_W, GAME_H, MAP_COLS, MAP_ROWS, COLORS, MENU_ITEMS, DAY_DURATION_MS, CUSTOMER_SPAWN_MS, SHOP_ITEMS, EMPLOYEE_NAMES, DECORATION_ITEMS, CAFE_TIERS, DecorationDef, PlacedDecoration } from '../constants';
 import { MenuItemDef, CustomerType, InteractionContext, TableSlot, TableSeat, ShopState, OrderInfo } from '../types';
 import { Player } from '../entities/Player';
 import { Cat } from '../entities/Cat';
 import { Customer } from '../entities/Customer';
 import { Employee } from '../entities/Employee';
 import { loadGame, defaultSaveState, saveGame } from '../systems/SaveSystem';
+import { Pathfinder } from '../systems/Pathfinder';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAP DEFINITION
+// MAP DEFINITION  —  Central Kitchen Island layout
 // Tile codes: 0=space/moon, 1=floor, 2=wall, 3=window, 4=counter, 5=door, 6=kitchen
-// Kitchen: rows 4-6  |  Service counter: row 7 (opening cols 13-17)  |  Dining: rows 8-14
+//
+// Island (cols 10-19, rows 5-10):
+//   Row 5      : counter top (full width)
+//   Rows 6-9   : counter walls (cols 10,19) + kitchen interior (cols 11-18)
+//   Row 10     : counter walls (cols 10,19) + open pass-through (cols 11-18)
+// Dining left  : cols 1-9   rows 4-14
+// Dining right : cols 20-28 rows 4-14
+// Dining bottom: cols 1-28  rows 11-14
 // ─────────────────────────────────────────────────────────────────────────────
 const MAP: number[][] = [
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 0  space
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 1  space
   [2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2], // 2  windows
   [2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2], // 3  windows
-  [2,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,2], // 4  kitchen
-  [2,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,2], // 5  kitchen (stations)
-  [2,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,2], // 6  kitchen
-  [2,4,4,4,4,4,4,4,4,4,4,4,4,1,1,1,1,1,4,4,4,4,4,4,4,4,4,4,4,2], // 7  service counter + opening
-  [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 8  dining
-  [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 9  dining
-  [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 10 dining
+  [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 4  dining
+  [2,1,1,1,1,1,1,1,1,1,4,4,4,4,4,4,4,4,4,4,1,1,1,1,1,1,1,1,1,2], // 5  dining + island counter top
+  [2,1,1,1,1,1,1,1,1,1,4,6,6,6,6,6,6,6,6,4,1,1,1,1,1,1,1,1,1,2], // 6  island walls + kitchen
+  [2,1,1,1,1,1,1,1,1,1,1,6,6,6,6,6,6,6,6,1,1,1,1,1,1,1,1,1,1,2], // 7  open sides (col10,19=floor)
+  [2,1,1,1,1,1,1,1,1,1,1,6,6,6,6,6,6,6,6,1,1,1,1,1,1,1,1,1,1,2], // 8  open sides (col10,19=floor)
+  [2,1,1,1,1,1,1,1,1,1,4,6,6,6,6,6,6,6,6,4,1,1,1,1,1,1,1,1,1,2], // 9  island + kitchen
+  [2,1,1,1,1,1,1,1,1,1,4,1,1,1,1,1,1,1,1,4,1,1,1,1,1,1,1,1,1,2], // 10 island pass-through bottom
   [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 11 dining
   [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 12 dining
   [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 13 dining
   [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2], // 14 dining
   [2,2,2,2,2,2,2,2,2,2,2,2,2,2,5,5,5,5,2,2,2,2,2,2,2,2,2,2,2,2], // 15 front wall + door
-  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 16 exterior
-  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 17 exterior
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 16 moon exterior
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 17 moon exterior
 ];
 
 interface Station {
@@ -45,6 +53,7 @@ interface Station {
   cookTargetMs: number;
   progressBg?: Phaser.GameObjects.Sprite;
   progressFill?: Phaser.GameObjects.Graphics;
+  readyFoodSprite?: Phaser.GameObjects.Sprite;
   currentOrderId: number | null;
 }
 
@@ -66,7 +75,7 @@ export class GameScene extends Phaser.Scene {
   private dayProgress = 0;
   private totalServed = 0;
   private nextCustomerId = 1;
-  private shopState: ShopState = { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0 };
+  private shopState: ShopState = { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0, placedDecorations: [] };
 
   private interactionPrompt?: Phaser.GameObjects.Container;
   private currentInteraction: InteractionContext = { type: 'none', label: '' };
@@ -84,6 +93,18 @@ export class GameScene extends Phaser.Scene {
 
   private shopRefreshFns: Array<(hover?: boolean) => void> = [];
   private uiRefreshTimer = 0;
+  private pathfinder!: Pathfinder;
+  private customerPathfinder!: Pathfinder; // kitchen tiles not walkable — customers stay outside
+
+  // Decoration / café tier system
+  private isDecorateMode = false;
+  private pendingDecorationDef: DecorationDef | null = null;
+  private ghostSprite: Phaser.GameObjects.Image | null = null;
+  private decorateOverlayText: Phaser.GameObjects.Text | null = null;
+  private decorationSprites = new Map<string, Phaser.GameObjects.Image>(); // "tileX,tileY" → sprite
+  private occupiedDecoTiles = new Set<string>();  // "tileX,tileY"
+  private hardBlockedTiles = new Set<string>();   // furniture tiles — cannot place decor
+  private currentTierLevel = 1;
 
   constructor() { super('GameScene'); }
 
@@ -106,22 +127,34 @@ export class GameScene extends Phaser.Scene {
     this.autoSaveTimer = 0;
     this.interactionPrompt = undefined;
     this.currentInteraction = { type: 'none', label: '' };
+    this.isDecorateMode = false;
+    this.pendingDecorationDef = null;
+    this.ghostSprite = null;
+    this.decorateOverlayText = null;
+    this.decorationSprites = new Map();
+    this.occupiedDecoTiles = new Set();
+    this.hardBlockedTiles = new Set();
 
     const saved = loadGame() ?? defaultSaveState();
     this.money = saved.money;
     this.reputation = saved.reputation;
     this.day = saved.day;
     this.totalServed = saved.totalServed;
-    this.shopState = saved.shop ?? { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0 };
+    this.shopState = saved.shop ?? { catToys: 0, catTrees: 0, employees: 0, extraMachines: 0, placedDecorations: [] };
 
     this.buildMap();
     this.buildFurniture();
+    this.buildPathfinder();
     this.buildKitchenStations();
     this.buildCatBeds();
     this.buildDecorations();
     this.buildExteriorDecor();
+    this.buildHardBlockedTiles();
+    this.renderPlacedDecorations();
+    this.currentTierLevel = this.getCurrentTier().level;
 
-    this.player = new Player(this, GAME_W / 2, 5.5 * TILE);
+    // Start player inside the central kitchen island (col 14, row 8)
+    this.player = new Player(this, 14 * TILE + TILE / 2, 8 * TILE + TILE / 2);
     this.player.onInteract = () => this.handleInteraction();
 
     this.physics.add.collider(this.player, this.wallGroup);
@@ -142,6 +175,47 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.scheduleNextCustomer();
+
+    // ESC key — exit decorate mode first, then go to menu
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on('down', () => {
+      if (this.isDecorateMode) { this.exitDecorateMode(); }
+      else { this.goToMenu(); }
+    });
+
+    // D key — toggle decoration panel
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D).on('down', () => {
+      if (this.isDecorateMode) {
+        this.exitDecorateMode();
+        this.game.events.emit('game_event', { type: 'close_decorate_panel' });
+      } else {
+        this.enterDecorateMode();
+        this.game.events.emit('game_event', { type: 'open_decorate_panel', money: this.money });
+      }
+    });
+
+    // Events from UIScene decoration panel
+    this.game.events.on('game_event', (evt: { type: string; defId?: string }) => {
+      if (evt.type === 'start_placement') {
+        const def = DECORATION_ITEMS.find(d => d.id === evt.defId);
+        if (def) { this.pendingDecorationDef = def; this.refreshGhostSprite(); }
+      } else if (evt.type === 'close_decorate_panel') {
+        this.exitDecorateMode();
+      } else if (evt.type === 'open_decorate_panel') {
+        this.enterDecorateMode();
+      }
+    }, this);
+
+    // Menu button event from UIScene
+    this.game.events.on('go_menu', this.goToMenu, this);
+
+    // Tap-to-interact: player auto-walks to the tapped object and acts
+    this.input.on('pointerdown', this.handleTap, this);
+
+    this.events.once('shutdown', () => {
+      this.game.events.off('go_menu', this.goToMenu, this);
+      this.game.events.off('game_event', undefined, this);
+      this.input.off('pointerdown', this.handleTap, this);
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -187,16 +261,18 @@ export class GameScene extends Phaser.Scene {
   private buildFurniture(): void {
     this.furnitureGroup = this.physics.add.staticGroup();
 
-    // Layout: 4 single tables + 4 group tables (2 seats each)
-    // Single tables: left side of dining area
+    // Layout: 8 single tables flanking the island + 4 group tables below it
+    // Single tables left (cols 1-9) and right (cols 20-28), mid-rows
     const singleLayout = [
-      { col: 3, row: 9 }, { col: 8, row: 9 },
-      { col: 3, row: 12 }, { col: 8, row: 12 },
+      { col: 2, row: 7 }, { col: 6, row: 7 },   // left side, island-height band
+      { col: 2, row: 11 }, { col: 6, row: 11 },  // left side, below island
+      { col: 21, row: 7 }, { col: 25, row: 7 },  // right side, island-height band
+      { col: 21, row: 11 }, { col: 25, row: 11 }, // right side, below island
     ];
-    // Group tables: right side of dining area
+    // Group tables below the island (rows 12-13)
     const groupLayout = [
-      { col: 14, row: 9 }, { col: 20, row: 9 },
-      { col: 14, row: 12 }, { col: 20, row: 12 },
+      { col: 3,  row: 12 }, { col: 10, row: 12 },
+      { col: 17, row: 12 }, { col: 22, row: 12 },
     ];
 
     let tableId = 0;
@@ -216,7 +292,12 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(wx, wy + 26, 'obj_chair').setDepth(4);
 
       const seat: TableSeat = { seatX: wx, seatY: wy + 22, occupied: false, customerId: null };
-      this.tables.push({ id: tableId++, worldX: wx, worldY: wy, seats: [seat] });
+      const tid = tableId++;
+      this.tables.push({ id: tid, worldX: wx, worldY: wy, seats: [seat] });
+      this.add.text(wx, wy - 20, `T${tid + 1}`, {
+        fontSize: '8px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#3A1A00', strokeThickness: 3,
+      }).setOrigin(0.5, 0.5).setDepth(4.5);
     }
 
     // 2-seat group tables
@@ -240,7 +321,12 @@ export class GameScene extends Phaser.Scene {
         { seatX: wx - 18, seatY: wy + 22, occupied: false, customerId: null },
         { seatX: wx + 18, seatY: wy + 22, occupied: false, customerId: null },
       ];
-      this.tables.push({ id: tableId++, worldX: wx, worldY: wy, seats });
+      const tid = tableId++;
+      this.tables.push({ id: tid, worldX: wx, worldY: wy, seats });
+      this.add.text(wx, wy - 20, `T${tid + 1}`, {
+        fontSize: '8px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#3A1A00', strokeThickness: 3,
+      }).setOrigin(0.5, 0.5).setDepth(4.5);
     }
   }
 
@@ -249,17 +335,18 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private buildKitchenStations(): void {
-    type StationDef = { col: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
+    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
 
+    // Stations inside central island (cols 11-18, rows 7-8)
     const baseDefs: StationDef[] = [
-      { col: 4,  type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee'   },
-      { col: 14, type: 'stove',  tex: 'obj_stove',          label: 'Stove'    },
-      { col: 23, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep'     },
+      { col: 12, row: 7, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee' },
+      { col: 15, row: 7, type: 'stove',  tex: 'obj_stove',          label: 'Stove'  },
+      { col: 17, row: 7, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep'   },
     ];
     const extraDefs: StationDef[] = [
-      { col: 9,  type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
-      { col: 19, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
-      { col: 27, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
+      { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
+      { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
+      { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
     ];
 
     const defs = this.shopState.extraMachines >= 1
@@ -268,10 +355,10 @@ export class GameScene extends Phaser.Scene {
 
     defs.forEach((def, i) => {
       const wx = def.col * TILE + TILE / 2;
-      const wy = 5 * TILE + TILE / 2;
+      const wy = def.row * TILE + TILE / 2;
 
       const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
-      const label = this.add.text(wx, wy - 30, def.label, {
+      const label = this.add.text(wx, wy - 20, def.label, {
         fontSize: '9px', color: '#FFEEDD', fontFamily: 'monospace',
       }).setOrigin(0.5, 1).setDepth(5);
 
@@ -282,11 +369,11 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // Trash can (col 28, right wall side)
-    this.trashCanX = 28 * TILE + TILE / 2;
-    this.trashCanY = 5 * TILE + TILE / 2;
+    // Trash can — far right inside island
+    this.trashCanX = 18 * TILE + TILE / 2;
+    this.trashCanY = 8 * TILE + TILE / 2;
     this.add.sprite(this.trashCanX, this.trashCanY, 'obj_trash_can').setDepth(4).setOrigin(0.5, 0.7);
-    this.add.text(this.trashCanX, this.trashCanY - 22, 'Discard', {
+    this.add.text(this.trashCanX, this.trashCanY - 16, 'Discard', {
       fontSize: '8px', color: '#888877', fontFamily: 'monospace',
     }).setOrigin(0.5, 1).setDepth(5);
   }
@@ -296,9 +383,10 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private buildCatBeds(): void {
+    // Beds in bottom corners and along side walls
     const bedPositions = [
-      { col: 22, row: 9 }, { col: 25, row: 9 },
-      { col: 22, row: 12 }, { col: 25, row: 12 },
+      { col: 1,  row: 13 }, { col: 27, row: 13 },
+      { col: 1,  row: 5  }, { col: 27, row: 5  },
     ];
     bedPositions.forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_cat_bed').setDepth(1).setOrigin(0.5, 0.7);
@@ -306,26 +394,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildDecorations(): void {
-    // Large Earth visible through back windows (positioned over window area)
+    // Large Earth visible through back windows
     const earthX = 22 * TILE;
     const earthY = 2.5 * TILE;
     const earth = this.add.graphics().setDepth(1.5);
-    // Atmosphere glow
     earth.fillStyle(COLORS.EARTH_OCEAN, 0.08); earth.fillCircle(earthX, earthY, 56);
-    // Ocean
     earth.fillStyle(COLORS.EARTH_OCEAN, 1); earth.fillCircle(earthX, earthY, 42);
-    // Landmasses
     earth.fillStyle(COLORS.EARTH_LAND, 1);
     earth.fillEllipse(earthX - 10, earthY - 14, 26, 20);
     earth.fillEllipse(earthX + 12, earthY + 10, 22, 16);
     earth.fillEllipse(earthX - 14, earthY + 12, 16, 14);
-    // Clouds
     earth.fillStyle(COLORS.EARTH_CLOUD, 0.88);
     earth.fillEllipse(earthX - 2, earthY - 24, 30, 12);
     earth.fillEllipse(earthX + 14, earthY, 22, 10);
     earth.fillEllipse(earthX - 18, earthY + 2, 18, 8);
 
-    // A second smaller Earth/moon in another corner
+    // Moon in another window
     const moonX = 6 * TILE;
     const moonY = 2.5 * TILE;
     const moonG = this.add.graphics().setDepth(1.5);
@@ -333,28 +417,30 @@ export class GameScene extends Phaser.Scene {
     moonG.fillStyle(COLORS.MOON_DARK, 0.8); moonG.fillCircle(moonX, moonY, 18);
     moonG.fillStyle(COLORS.MOON_GRAY, 1); moonG.fillCircle(moonX - 4, moonY - 3, 14);
 
-    // Plants in dining area corners
+    // Nebula wash visible across all windows — deep warm amber
+    const nebula = this.add.graphics().setDepth(1.4).setBlendMode(Phaser.BlendModes.ADD);
+    nebula.fillStyle(0xFF6600, 0.04); nebula.fillCircle(15 * TILE, 2 * TILE, 200);
+    nebula.fillStyle(0x4400AA, 0.06); nebula.fillCircle(20 * TILE, 3 * TILE, 160);
+
+    // Plants in dining corners and against walls
     const plantPositions = [
-      { col: 1, row: 8 }, { col: 1, row: 14 },
-      { col: 28, row: 8 }, { col: 28, row: 14 },
-      { col: 11, row: 8 }, { col: 11, row: 14 },
+      { col: 1, row: 4 }, { col: 28, row: 4 },    // back corners
+      { col: 1, row: 14 }, { col: 28, row: 14 },  // front corners
+      { col: 1, row: 9 }, { col: 28, row: 9 },    // side mid-points
     ];
     plantPositions.forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
     });
 
-    // Plants in kitchen area
-    this.add.sprite(1 * TILE + TILE/2, 4 * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
-    this.add.sprite(28 * TILE + TILE/2, 4 * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
-
-    // Cat food bowls
-    [{ col: 21, row: 14 }, { col: 26, row: 14 }].forEach(pos => {
+    // Cat food bowls near cat beds
+    [{ col: 2, row: 14 }, { col: 26, row: 14 }].forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_food_bowl').setDepth(2).setOrigin(0.5, 0.7);
     });
 
     // Shop-purchased cat toys
     const toyPositions = [
-      { col: 18, row: 8 }, { col: 22, row: 13 }, { col: 27, row: 10 }, { col: 19, row: 13 },
+      { col: 3, row: 13 }, { col: 25, row: 13 },
+      { col: 3, row: 6 },  { col: 25, row: 6 },
     ];
     for (let i = 0; i < Math.min(this.shopState.catToys, toyPositions.length); i++) {
       const pos = toyPositions[i];
@@ -363,29 +449,32 @@ export class GameScene extends Phaser.Scene {
 
     // Shop-purchased cat trees
     const treePositions = [
-      { col: 26, row: 8 }, { col: 20, row: 14 },
+      { col: 8, row: 4 }, { col: 20, row: 4 },
     ];
     for (let i = 0; i < Math.min(this.shopState.catTrees, treePositions.length); i++) {
       const pos = treePositions[i];
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_cat_tree').setDepth(3).setOrigin(0.5, 1);
     }
 
-    // Ambient warm light spots
+    // Warm amber glow pools — above each table cluster
     const lightGraphics = this.add.graphics().setDepth(0.5).setBlendMode(Phaser.BlendModes.ADD);
     const lightPositions = [
-      [5 * TILE, 10 * TILE], [12 * TILE, 10 * TILE],
-      [5 * TILE, 13 * TILE], [12 * TILE, 13 * TILE],
-      [15 * TILE, 5 * TILE], [6 * TILE, 5 * TILE],
+      [4 * TILE, 8 * TILE],   [8 * TILE, 8 * TILE],   // left tables
+      [4 * TILE, 12 * TILE],  [8 * TILE, 12 * TILE],  // left tables lower
+      [22 * TILE, 8 * TILE],  [26 * TILE, 8 * TILE],  // right tables
+      [22 * TILE, 12 * TILE], [26 * TILE, 12 * TILE], // right tables lower
+      [8 * TILE,  13 * TILE], [15 * TILE, 13 * TILE], [22 * TILE, 13 * TILE], // bottom tables
+      [15 * TILE, 7.5 * TILE],  // island overhead light
     ];
     lightPositions.forEach(([lx, ly]) => {
-      lightGraphics.fillStyle(0xFFCC66, 0.045);
-      lightGraphics.fillCircle(lx, ly, 90);
+      lightGraphics.fillStyle(0xFF8800, 0.055);
+      lightGraphics.fillCircle(lx, ly, 72);
     });
 
-    // "KITCHEN" zone label
-    this.add.text(15 * TILE, 4 * TILE + 6, 'KITCHEN', {
-      fontSize: '10px', color: '#AAAAAA', fontFamily: 'monospace', alpha: 0.6,
-    } as Phaser.Types.GameObjects.Text.TextStyle).setOrigin(0.5, 0).setDepth(2).setAlpha(0.45);
+    // "KITCHEN" label — centered over the island
+    this.add.text(15 * TILE, 5.5 * TILE, 'KITCHEN', {
+      fontSize: '10px', color: '#C8920A', fontFamily: 'monospace',
+    } as Phaser.Types.GameObjects.Text.TextStyle).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.5);
   }
 
   private buildExteriorDecor(): void {
@@ -404,18 +493,14 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, tex).setDepth(2).setOrigin(0.5, 0.8);
     });
 
-    // Also rocks beside the building walls (outside, rows 4-6 at cols 0-1 and 28-29)
     [ { col: 0, row: 4 }, { col: 0, row: 10 }, { col: 29, row: 6 }, { col: 29, row: 12 } ].forEach(r => {
       this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, 'obj_moon_rock_sm').setDepth(2).setOrigin(0.5, 0.8);
     });
 
-    // Moon flag (left of door)
     this.add.sprite(9 * TILE + TILE/2, 16 * TILE, 'obj_moon_flag').setDepth(3).setOrigin(0.5, 1);
-
-    // Lunar rover (right side of exterior)
     this.add.sprite(23 * TILE, 16 * TILE + 4, 'obj_lunar_rover').setDepth(3).setOrigin(0.5, 1);
 
-    // Footprints trail near the door (simple graphics)
+    // Footprints near door
     const footG = this.add.graphics().setDepth(1.5).setAlpha(0.5);
     footG.fillStyle(COLORS.MOON_DARK, 1);
     for (let i = 0; i < 8; i++) {
@@ -424,7 +509,7 @@ export class GameScene extends Phaser.Scene {
       footG.fillEllipse(fx, fy, 8, 5);
     }
 
-    // Some craters in the exterior area
+    // Craters
     const craterG = this.add.graphics().setDepth(0.5);
     [[4 * TILE, 16 * TILE + 14], [13 * TILE, 17 * TILE + 6], [27 * TILE, 17 * TILE + 10]].forEach(([cx, cy]) => {
       craterG.fillStyle(COLORS.MOON_DARK, 1); craterG.fillCircle(cx, cy, 10);
@@ -433,16 +518,188 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // DECORATION SYSTEM
+  // ─────────────────────────────────────────────────────────────────────
+
+  private buildHardBlockedTiles(): void {
+    // Mark tiles occupied by fixed furniture so decorations can't overlap them.
+    // Single tables: definition col → world tile col+1
+    const singleTables = [[2,7],[6,7],[2,11],[6,11],[21,7],[25,7],[21,11],[25,11]];
+    singleTables.forEach(([c,r]) => {
+      this.hardBlockedTiles.add(`${c+1},${r}`);
+      this.hardBlockedTiles.add(`${c+1},${r-1}`); // north chair
+      this.hardBlockedTiles.add(`${c+1},${r+1}`); // south chair
+    });
+    // Group tables: definition col → tile col+1
+    const groupTables = [[3,12],[10,12],[17,12],[22,12]];
+    groupTables.forEach(([c,r]) => {
+      this.hardBlockedTiles.add(`${c+1},${r}`);
+      this.hardBlockedTiles.add(`${c},${r-1}`); this.hardBlockedTiles.add(`${c+2},${r-1}`);
+      this.hardBlockedTiles.add(`${c},${r+1}`); this.hardBlockedTiles.add(`${c+2},${r+1}`);
+    });
+    // Cat beds
+    [[1,13],[27,13],[1,5],[27,5]].forEach(([c,r]) => this.hardBlockedTiles.add(`${c},${r}`));
+  }
+
+  private renderPlacedDecorations(): void {
+    this.occupiedDecoTiles.clear();
+    this.decorationSprites.clear();
+    const decors = this.shopState.placedDecorations ?? [];
+    for (const pd of decors) {
+      const def = DECORATION_ITEMS.find(d => d.id === pd.defId);
+      if (!def) continue;
+      const wx = pd.tileX * TILE + TILE / 2;
+      const wy = pd.tileY * TILE + TILE / 2;
+      const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000);
+      this.decorationSprites.set(`${pd.tileX},${pd.tileY}`, spr);
+      this.occupiedDecoTiles.add(`${pd.tileX},${pd.tileY}`);
+    }
+  }
+
+  computeAmbiance(): number {
+    return (this.shopState.placedDecorations ?? []).reduce((sum, pd) => {
+      const def = DECORATION_ITEMS.find(d => d.id === pd.defId);
+      return sum + (def?.ambianceValue ?? 0);
+    }, 0);
+  }
+
+  getCurrentTier() {
+    const ambiance = this.computeAmbiance();
+    let tier = CAFE_TIERS[0];
+    for (const t of CAFE_TIERS) {
+      if (ambiance >= t.ambianceRequired) tier = t;
+    }
+    return tier;
+  }
+
+  getEffectiveMenu(): MenuItemDef[] {
+    const tier = this.getCurrentTier();
+    return (MENU_ITEMS as unknown as MenuItemDef[])
+      .filter(item => tier.unlockedMenuIds.includes(item.id as any))
+      .map(item => ({ ...item, price: Math.round(item.price * tier.priceMultiplier) }));
+  }
+
+  private isValidDecoTile(tileX: number, tileY: number): boolean {
+    if (tileX < 0 || tileY < 0 || tileX >= MAP_COLS || tileY >= MAP_ROWS) return false;
+    const key = `${tileX},${tileY}`;
+    return MAP[tileY]?.[tileX] === 1
+      && !this.hardBlockedTiles.has(key)
+      && !this.occupiedDecoTiles.has(key);
+  }
+
+  private enterDecorateMode(): void {
+    if (this.isDecorateMode) return;
+    this.isDecorateMode = true;
+    this.decorateOverlayText = this.add.text(GAME_W / 2, 60, '✦ DECORATE MODE — D or ESC to exit', {
+      fontSize: '12px', color: '#FFD700', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(105).setAlpha(0);
+    this.tweens.add({ targets: this.decorateOverlayText, alpha: 1, duration: 300 });
+  }
+
+  private exitDecorateMode(): void {
+    if (!this.isDecorateMode) return;
+    this.isDecorateMode = false;
+    this.pendingDecorationDef = null;
+    this.ghostSprite?.destroy(); this.ghostSprite = null;
+    this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
+  }
+
+  private refreshGhostSprite(): void {
+    this.ghostSprite?.destroy(); this.ghostSprite = null;
+    if (!this.pendingDecorationDef) return;
+    this.ghostSprite = this.add.image(-999, -999, this.pendingDecorationDef.spriteKey)
+      .setAlpha(0.55).setDepth(150);
+  }
+
+  private handleDecorateClick(worldX: number, worldY: number): void {
+    const tileX = Math.floor(worldX / TILE);
+    const tileY = Math.floor(worldY / TILE);
+
+    if (this.pendingDecorationDef) {
+      if (!this.isValidDecoTile(tileX, tileY)) {
+        this.showFloatingText(worldX, worldY - 16, 'Can\'t place here', '#FF6666');
+        return;
+      }
+      const def = this.pendingDecorationDef;
+      if (this.money < def.cost) {
+        this.showFloatingText(worldX, worldY - 16, 'Not enough ✦', '#FF6666');
+        return;
+      }
+      // Place decoration
+      this.money -= def.cost;
+      const pd: PlacedDecoration = { defId: def.id, tileX, tileY };
+      if (!this.shopState.placedDecorations) this.shopState.placedDecorations = [];
+      this.shopState.placedDecorations.push(pd);
+      this.occupiedDecoTiles.add(`${tileX},${tileY}`);
+      const wx = tileX * TILE + TILE / 2;
+      const wy = tileY * TILE + TILE / 2;
+      const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000).setAlpha(0);
+      this.tweens.add({ targets: spr, alpha: 1, duration: 250 });
+      this.decorationSprites.set(`${tileX},${tileY}`, spr);
+
+      this.showFloatingText(wx, wy - 20, `+${def.ambianceValue} ✦ ambiance`, '#FFDD44');
+      this.showFloatingText(wx, wy + 4, `-${def.cost} ✦`, '#FF8888');
+      this.playChime();
+      this.checkTierUp();
+      this.emitUIUpdate();
+    } else {
+      // Try to sell an existing decoration
+      const key = `${tileX},${tileY}`;
+      if (this.occupiedDecoTiles.has(key)) {
+        const idx = (this.shopState.placedDecorations ?? []).findIndex(p => p.tileX === tileX && p.tileY === tileY);
+        if (idx === -1) return;
+        const pd = this.shopState.placedDecorations[idx];
+        const def = DECORATION_ITEMS.find(d => d.id === pd.defId);
+        const refund = def ? Math.floor(def.cost * 0.5) : 0;
+        this.shopState.placedDecorations.splice(idx, 1);
+        this.occupiedDecoTiles.delete(key);
+        this.decorationSprites.get(key)?.destroy();
+        this.decorationSprites.delete(key);
+        this.money += refund;
+        this.showFloatingText(tileX * TILE + TILE/2, tileY * TILE, `Sold! +${refund} ✦`, '#AAFFAA');
+        this.playPop();
+        this.emitUIUpdate();
+      }
+    }
+  }
+
+  private checkTierUp(): void {
+    const newTier = this.getCurrentTier();
+    if (newTier.level > this.currentTierLevel) {
+      this.currentTierLevel = newTier.level;
+      this.showTierUpBanner(newTier.name);
+      this.game.events.emit('game_event', { type: 'tier_changed', tierName: newTier.name, tierLevel: newTier.level });
+    }
+  }
+
+  private showTierUpBanner(tierName: string): void {
+    const banner = this.add.text(GAME_W / 2, GAME_H / 2 - 40, `★ ${tierName} ★\nNew menu items unlocked!`, {
+      fontSize: '20px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 4, align: 'center',
+    }).setOrigin(0.5).setDepth(200).setAlpha(0);
+    this.tweens.add({
+      targets: banner, alpha: 1, y: GAME_H / 2 - 60, duration: 500,
+      onComplete: () => {
+        this.time.delayedCall(2000, () => {
+          this.tweens.add({ targets: banner, alpha: 0, duration: 600, onComplete: () => banner.destroy() });
+        });
+      },
+    });
+    this.playChime();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // CATS
   // ─────────────────────────────────────────────────────────────────────
 
   private spawnCats(catData: ReturnType<typeof defaultSaveState>['cats']): void {
     const catPositions = [
-      { col: 22, row: 9 }, { col: 25, row: 9 },
-      { col: 22, row: 12 }, { col: 25, row: 12 },
+      { col: 2,  row: 12 }, { col: 26, row: 12 },
+      { col: 2,  row: 6  }, { col: 26, row: 6  },
     ];
-    // Cats wander only in the dining area
-    const bounds = new Phaser.Geom.Rectangle(TILE, 8 * TILE, 27 * TILE, 6 * TILE);
+    // Cats roam the open dining floor (stays clear of the island)
+    const bounds = new Phaser.Geom.Rectangle(TILE, 11 * TILE, 27 * TILE, 3 * TILE);
 
     catData.forEach((data, i) => {
       const pos = catPositions[i % catPositions.length];
@@ -461,7 +718,7 @@ export class GameScene extends Phaser.Scene {
 
   private spawnEmployees(): void {
     const empPositions = [
-      { col: 5, row: 11 }, { col: 17, row: 11 },
+      { col: 3, row: 12 }, { col: 25, row: 12 },
     ];
     for (let i = 0; i < this.shopState.employees; i++) {
       const pos = empPositions[i % empPositions.length];
@@ -535,12 +792,16 @@ export class GameScene extends Phaser.Scene {
     const type = types[Math.floor(Math.random() * types.length)];
     const spawnX = (14 + Math.floor(Math.random() * 4)) * TILE + TILE / 2;
     const spawnY = 16 * TILE + TILE / 2;
-    return new Customer(
+    const customer = new Customer(
       this, spawnX, spawnY,
       this.nextCustomerId++, type,
       seatX, seatY,
       GAME_W / 2, GAME_H + 20,
     );
+    // Customer pathfinder: routes around island exterior (kitchen not walkable for them)
+    customer.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
+    customer.getAvailableMenuItems = () => this.getEffectiveMenu();
+    return customer;
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -631,6 +892,8 @@ export class GameScene extends Phaser.Scene {
             stn.currentOrderId = null;
             stn.progressBg?.destroy(); stn.progressBg = undefined;
             stn.progressFill?.destroy(); stn.progressFill = undefined;
+            stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
+            stn.sprite.clearTint();
             this.playCook();
           }
         } else if (!stn.isCooking) {
@@ -763,6 +1026,8 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0.5);
       container.add([bg, prompt, txt]);
       container.setData('txt', txt);
+      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 220, 28), Phaser.Geom.Rectangle.Contains);
+      container.on('pointerdown', () => this.handleInteraction());
       this.interactionPrompt = container;
     }
     const txt = this.interactionPrompt.getData('txt') as Phaser.GameObjects.Text;
@@ -783,6 +1048,7 @@ export class GameScene extends Phaser.Scene {
     if (this.dayEnded) return;
     this.dayEnded = true;
     this.dayPhase = 'night';
+    this.player.clearMoveTargets();
 
     this.customers.forEach(c => {
       if (c.active && c.aiState !== 'walking_out' && c.aiState !== 'gone') {
@@ -1019,6 +1285,142 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // NAVIGATION + TAP-TO-INTERACT
+  // ─────────────────────────────────────────────────────────────────────
+
+  private goToMenu(): void {
+    this.scene.stop('UIScene');
+    this.scene.start('MainMenuScene');
+  }
+
+  /**
+   * Tap handler for touch/click. Identifies the nearest relevant game object
+   * at the tap position, builds a waypoint path (routing through the counter
+   * opening when crossing between kitchen and dining), and queues an auto-walk
+   * that fires handleInteraction() on arrival.
+   */
+  private handleTap(pointer: Phaser.Input.Pointer): void {
+    if (this.dayEnded) return;
+    // In decorate mode, route clicks to the placement handler (ignore HUD + decorate panel areas)
+    if (this.isDecorateMode) {
+      if (pointer.y < 58) return;
+      if (pointer.x > GAME_W - 220) return; // decoration panel area
+      this.handleDecorateClick(pointer.worldX, pointer.worldY);
+      return;
+    }
+    // Ignore taps in the HUD strip or orders panel so UIScene buttons don't
+    // accidentally trigger a world walk.
+    if (pointer.y < 58) return;
+    if (pointer.x > GAME_W - 160 && pointer.y < 260) return;
+
+    const wx = pointer.worldX;
+    const wy = pointer.worldY;
+    const TAP_R = TILE * 1.8; // generous tap radius
+
+    this.showTapIndicator(wx, wy);
+
+    // 1. Trash can (only relevant when carrying food)
+    if (this.player.isCarryingFood()) {
+      if (Phaser.Math.Distance.Between(wx, wy, this.trashCanX, this.trashCanY) < TAP_R * 1.2) {
+        const pts = this.buildWaypointsTo(this.trashCanX, this.trashCanY + TILE * 0.5);
+        this.player.setMoveTargets(pts, () => {
+          this.currentInteraction = this.scanInteractables();
+          this.handleInteraction();
+        });
+        return;
+      }
+    }
+
+    // 2. Customers — take order or deliver food
+    for (const c of this.customers) {
+      if (!c.active) continue;
+      if (Phaser.Math.Distance.Between(wx, wy, c.x, c.y) < TAP_R) {
+        const wantOrder  = c.aiState === 'waiting_order';
+        const wantDeliver = c.aiState === 'waiting_food'
+          && this.player.isCarryingFood()
+          && c.order?.id === this.player.getCarriedFoodId();
+        if (wantOrder || wantDeliver) {
+          // Target slightly south of the customer so the player approaches
+          // from below the table rather than walking into its corner.
+          const pts = this.buildWaypointsTo(c.x, c.y + 18);
+          this.player.setMoveTargets(pts, () => {
+            this.currentInteraction = this.scanInteractables();
+            this.handleInteraction();
+          });
+          return;
+        }
+      }
+    }
+
+    // 3. Kitchen stations — start cooking or pick up finished food
+    for (const stn of this.stations) {
+      if (Phaser.Math.Distance.Between(wx, wy, stn.worldX, stn.worldY) < TAP_R * 1.5) {
+        // Stand just below the station (still in kitchen, within scan reach)
+        const destY = stn.worldY + 16;
+        const pts = this.buildWaypointsTo(stn.worldX, destY);
+        this.player.setMoveTargets(pts, () => {
+          this.currentInteraction = this.scanInteractables();
+          this.handleInteraction();
+        });
+        return;
+      }
+    }
+
+    // 4. Cats
+    for (const cat of this.cats) {
+      if (Phaser.Math.Distance.Between(wx, wy, cat.x, cat.y) < TAP_R) {
+        const pts = this.buildWaypointsTo(cat.x, cat.y);
+        this.player.setMoveTargets(pts, () => {
+          this.currentInteraction = this.scanInteractables();
+          this.handleInteraction();
+        });
+        return;
+      }
+    }
+
+    // 5. Free-walk to tapped position
+    this.player.setMoveTargets(this.buildWaypointsTo(wx, wy));
+  }
+
+  /**
+   * Returns waypoints that route through the counter opening (cols 13-17)
+   * whenever the destination is on the opposite side of the service counter.
+   */
+  /** Build the A* pathfinder from the static tile map + furniture physics bodies. */
+  private buildPathfinder(): void {
+    // Player pathfinder — kitchen (6) is walkable so tap-to-move works inside the island.
+    this.pathfinder = new Pathfinder(MAP, TILE, new Set([1, 5, 6]));
+
+    // Customer pathfinder — kitchen (6) NOT walkable so customers route around the island
+    // exterior and never cut through the kitchen as a shortcut.
+    this.customerPathfinder = new Pathfinder(MAP, TILE, new Set([1, 5]));
+
+    // Mark furniture bodies as blocked in both pathfinders.
+    this.furnitureGroup.getChildren().forEach(child => {
+      const body = (child as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.StaticBody;
+      if (body) {
+        this.pathfinder.blockRect(body.x, body.y, body.width, body.height);
+        this.customerPathfinder.blockRect(body.x, body.y, body.width, body.height);
+      }
+    });
+  }
+
+  private buildWaypointsTo(tx: number, ty: number): Array<{ x: number; y: number }> {
+    return this.pathfinder.findPath(this.player.x, this.player.y, tx, ty);
+  }
+
+  private showTapIndicator(x: number, y: number): void {
+    const ring = this.add.graphics().setDepth(99);
+    ring.lineStyle(2, COLORS.UI_GOLD, 0.9);
+    ring.strokeCircle(x, y, 6);
+    this.tweens.add({
+      targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5,
+      duration: 380, ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // UI EVENTS
   // ─────────────────────────────────────────────────────────────────────
 
@@ -1040,9 +1442,10 @@ export class GameScene extends Phaser.Scene {
         } else {
           status = 'queued';
         }
-        return { customerId: c.customerId, itemName: c.order?.name ?? '?', stationType: c.order?.station ?? '', status, progress };
+        return { customerId: c.customerId, tableId: c.tableId, itemName: c.order?.name ?? '?', stationType: c.order?.station ?? '', status, progress };
       });
 
+    const tier = this.getCurrentTier();
     this.game.events.emit('ui_update', {
       money: this.money,
       reputation: this.reputation,
@@ -1052,6 +1455,9 @@ export class GameScene extends Phaser.Scene {
       totalServed: this.totalServed,
       phase: this.dayPhase,
       orders,
+      ambiance: this.computeAmbiance(),
+      tierName: tier.name,
+      tierLevel: tier.level,
     });
   }
 
@@ -1061,6 +1467,21 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.dayEnded && this.dayEndShown) return;
+
+    // Ghost cursor in decorate mode
+    if (this.isDecorateMode && this.ghostSprite && this.pendingDecorationDef) {
+      const ptr = this.input.activePointer;
+      const tileX = Math.floor(ptr.worldX / TILE);
+      const tileY = Math.floor(ptr.worldY / TILE);
+      this.ghostSprite.setPosition(tileX * TILE + TILE / 2, tileY * TILE + TILE / 2);
+      this.ghostSprite.setTint(this.isValidDecoTile(tileX, tileY) ? 0x88FF88 : 0xFF4444);
+    }
+
+    // Pause game simulation while in decorate mode
+    if (this.isDecorateMode) {
+      this.player.update();
+      return;
+    }
 
     this.player.update();
 
@@ -1125,7 +1546,24 @@ export class GameScene extends Phaser.Scene {
           stn.progressFill.fillRect(stn.progressBg.x - 22, stn.progressBg.y - 2, fillW, 4);
         }
         if (stn.cookProgress >= 1) {
-          this.tweens.add({ targets: stn.sprite, alpha: 0.3, duration: 150, yoyo: true, repeat: 3 });
+          stn.progressBg?.destroy(); stn.progressBg = undefined;
+          stn.progressFill?.destroy(); stn.progressFill = undefined;
+          const item = this.getCookingItem(stn);
+          if (item && !stn.readyFoodSprite) {
+            stn.readyFoodSprite = this.add.sprite(stn.worldX, stn.worldY - 42, `food_${item.id}`)
+              .setScale(2.0)
+              .setDepth(22);
+            this.tweens.add({
+              targets: stn.readyFoodSprite,
+              y: stn.worldY - 48,
+              duration: 500,
+              yoyo: true,
+              repeat: -1,
+              ease: 'Sine.easeInOut',
+            });
+          }
+          stn.sprite.setTint(0x88FF88);
+          this.tweens.add({ targets: stn.sprite, alpha: 0.4, duration: 120, yoyo: true, repeat: 2 });
           this.playChime();
         }
       }

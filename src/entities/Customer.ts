@@ -23,12 +23,18 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
   happiness = 70;         // 0–100
   private patienceDrainRate = 0; // per ms, set after order is taken
 
+  // Injected by GameScene — used to route around obstacles (e.g. island counter)
+  pathFinder?: (fromX: number, fromY: number, toX: number, toY: number) => Array<{x: number; y: number}>;
+  // Injected by GameScene — returns the effective menu for the current café tier
+  getAvailableMenuItems?: () => MenuItemDef[];
+
   private stateTimer = 0;
   private speechBubble?: Phaser.GameObjects.Container;
   private patienceBar?: Phaser.GameObjects.Graphics;
   private exitX = 0;
   private exitY = 0;
   private waypoint: { x: number; y: number } | null = null;
+  private navPath: Array<{x: number; y: number}> = [];
 
   constructor(scene: Phaser.Scene, x: number, y: number, id: number, type: CustomerType, seatX: number, seatY: number, exitX: number, exitY: number) {
     super(scene, x, y, `customer_${type}`);
@@ -50,20 +56,31 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
 
     // Walk straight up through the door before heading to seat
     this.waypoint = { x, y: DOOR_INNER_Y };
-
-    // Pick a random order
-    this.order = MENU_ITEMS[Math.floor(Math.random() * MENU_ITEMS.length)] as MenuItemDef;
+    // Order is picked when seated, using the injected getAvailableMenuItems callback
   }
 
   update(delta: number): void {
     switch (this.aiState) {
       case 'walking_in':
         if (this.waypoint) {
+          // Phase 1: walk through the door to the inner threshold
           this.walkToward(this.waypoint.x, this.waypoint.y, 80, delta);
-          if (this.distTo(this.waypoint.x, this.waypoint.y) < 16) this.waypoint = null;
+          if (this.distTo(this.waypoint.x, this.waypoint.y) < 16) {
+            this.waypoint = null;
+            // Phase 2: compute A* path from door inner to seat
+            this.navPath = this.pathFinder
+              ? this.pathFinder(DOOR_CENTER_X, DOOR_INNER_Y, this.seatX, this.seatY)
+              : [{ x: this.seatX, y: this.seatY }];
+          }
+        } else if (this.navPath.length > 0) {
+          const next = this.navPath[0];
+          this.walkToward(next.x, next.y, 80, delta);
+          if (this.distTo(next.x, next.y) < 20) {
+            this.navPath.shift();
+            if (this.navPath.length === 0) this.arrive();
+          }
         } else {
-          this.walkToward(this.seatX, this.seatY, 80, delta);
-          if (this.distTo(this.seatX, this.seatY) < 20) this.arrive();
+          this.arrive();
         }
         break;
 
@@ -71,6 +88,8 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
         this.setVel(0, 0);
         this.stateTimer -= delta;
         if (this.stateTimer <= 0) {
+          const menu = this.getAvailableMenuItems?.() ?? (MENU_ITEMS as unknown as MenuItemDef[]);
+          this.order = menu[Math.floor(Math.random() * menu.length)];
           this.aiState = 'waiting_order';
           this.showOrderBubble();
         }
@@ -103,10 +122,12 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
         break;
 
       case 'walking_out':
-        if (this.waypoint) {
-          this.walkToward(this.waypoint.x, this.waypoint.y, 85, delta);
-          if (this.distTo(this.waypoint.x, this.waypoint.y) < 16) this.waypoint = null;
+        if (this.navPath.length > 0) {
+          const next = this.navPath[0];
+          this.walkToward(next.x, next.y, 85, delta);
+          if (this.distTo(next.x, next.y) < 16) this.navPath.shift();
         } else {
+          // navPath exhausted (reached door threshold) — walk off-screen
           this.walkToward(this.exitX, this.exitY, 85, delta);
           if (this.distTo(this.exitX, this.exitY) < 10) {
             this.aiState = 'gone';
@@ -226,7 +247,11 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
 
   beginLeave(): void {
     this.aiState = 'walking_out';
-    this.waypoint = { x: DOOR_CENTER_X, y: DOOR_EXIT_Y };
+    this.waypoint = null;
+    // Route back to the door via A* so they navigate around the island
+    this.navPath = this.pathFinder
+      ? this.pathFinder(this.x, this.y, DOOR_CENTER_X, DOOR_EXIT_Y)
+      : [{ x: DOOR_CENTER_X, y: DOOR_EXIT_Y }];
     this.patienceBar?.destroy();
     this.patienceBar = undefined;
     this.hideOrderBubble();

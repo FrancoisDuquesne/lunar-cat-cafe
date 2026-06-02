@@ -8,29 +8,34 @@ export class MainMenuScene extends Phaser.Scene {
   create(): void {
     const cx = GAME_W / 2;
 
-    // ── Vibrant nebula background ─────────────────────────────────────
+    // ── Very deep space background — almost black with violet tinge ──
     const bg = this.add.graphics();
-    bg.fillGradientStyle(0x080416, 0x080416, 0x120820, 0x0A1030, 1);
+    bg.fillGradientStyle(0x03020E, 0x03020E, 0x06041C, 0x04020E, 1);
     bg.fillRect(0, 0, GAME_W, GAME_H);
 
-    // Nebula colour clouds
-    bg.fillStyle(0x5A0080, 0.22); bg.fillCircle(GAME_W * 0.72, GAME_H * 0.25, 220);
-    bg.fillStyle(0x003888, 0.20); bg.fillCircle(GAME_W * 0.18, GAME_H * 0.65, 200);
-    bg.fillStyle(0x700048, 0.16); bg.fillCircle(GAME_W * 0.85, GAME_H * 0.75, 170);
-    bg.fillStyle(0x003A55, 0.18); bg.fillCircle(GAME_W * 0.35, GAME_H * 0.2, 150);
+    // Nebula colour clouds — rich purples, warm amber, deep blue
+    bg.fillStyle(0x6600AA, 0.18); bg.fillCircle(GAME_W * 0.72, GAME_H * 0.25, 240);
+    bg.fillStyle(0x002266, 0.14); bg.fillCircle(GAME_W * 0.18, GAME_H * 0.55, 220);
+    bg.fillStyle(0x880022, 0.10); bg.fillCircle(GAME_W * 0.85, GAME_H * 0.75, 180);
+    bg.fillStyle(0xCC5500, 0.07); bg.fillCircle(GAME_W * 0.5,  GAME_H * 0.35, 260);
+    bg.fillStyle(0x440088, 0.12); bg.fillCircle(GAME_W * 0.3,  GAME_H * 0.15, 160);
 
-    // Stars — multi-colour
-    const starColors = [0xFFFFFF, 0xFFEEDD, 0xDDEEFF, 0xFFDDFF, 0xFFFFAA, 0xAAFFFF];
-    for (let i = 0; i < 240; i++) {
+    // Stars — more stars, varied warmth (warm white + cool blue-white)
+    const starColors = [0xFFFFFF, 0xFFEECC, 0xDDEEFF, 0xFFEEFF, 0xFFFFCC, 0xCCEEFF, 0xFFCC88];
+    for (let i = 0; i < 320; i++) {
       const color = starColors[Math.floor(Math.random() * starColors.length)];
-      const a = 0.35 + Math.random() * 0.65;
+      const a = 0.3 + Math.random() * 0.7;
       bg.fillStyle(color, a);
-      const big = Math.random() < 0.12;
-      bg.fillRect(
-        Math.random() * GAME_W,
-        Math.random() * GAME_H,
-        big ? 2 : 1, big ? 2 : 1,
-      );
+      const big = Math.random() < 0.08;
+      const glow = Math.random() < 0.04;
+      const sx = Math.random() * GAME_W;
+      const sy = Math.random() * GAME_H;
+      if (glow) {
+        bg.fillStyle(color, 0.12); bg.fillRect(sx - 2, sy - 2, 6, 6);
+        bg.fillStyle(color, 0.35); bg.fillRect(sx - 1, sy - 1, 4, 4);
+      }
+      bg.fillStyle(color, a);
+      bg.fillRect(sx, sy, big ? 2 : 1, big ? 2 : 1);
     }
 
     // ── Moon surface ──────────────────────────────────────────────────
@@ -55,27 +60,31 @@ export class MainMenuScene extends Phaser.Scene {
       },
     );
 
-    // ── Bio-dome ─────────────────────────────────────────────────────
+    // ── Bio-dome — rich amber interior glow ─────────────────────────
     const dome = this.add.graphics();
-    // Inner warm glow
-    dome.fillStyle(0xFF9940, 0.14);
-    dome.fillEllipse(cx, GAME_H - 50, 360, 200);
-    dome.fillStyle(0xFF6688, 0.07);
-    dome.fillEllipse(cx, GAME_H - 50, 300, 160);
-    // Dome shell
-    dome.fillStyle(0x101838, 0.55);
+    // Outer warm golden halo
+    dome.fillStyle(0xFF8800, 0.18);
+    dome.fillEllipse(cx, GAME_H - 50, 400, 230);
+    // Amber inner glow — like lantern light from inside
+    dome.fillStyle(0xFF6600, 0.12);
+    dome.fillEllipse(cx, GAME_H - 50, 340, 190);
+    dome.fillStyle(0xFFAA00, 0.06);
+    dome.fillEllipse(cx, GAME_H - 50, 280, 160);
+    // Dome shell — deep indigo
+    dome.fillStyle(0x080318, 0.6);
     dome.fillEllipse(cx, GAME_H - 50, 370, 205);
-    dome.lineStyle(3, 0x88DDFF, 0.85);
+    // Dome rim — bright gold instead of cyan
+    dome.lineStyle(3, 0xC8920A, 0.95);
     dome.strokeEllipse(cx, GAME_H - 50, 370, 205);
-    // Glass panel glints
-    dome.fillStyle(0x88CCFF, 0.28);
-    dome.fillRoundedRect(cx - 100, GAME_H - 150, 68, 48, 6);
-    dome.fillRoundedRect(cx + 22, GAME_H - 138, 68, 48, 6);
-    // Dome grid lines
-    dome.lineStyle(1, 0x88DDFF, 0.18);
+    // Gold grid lines
+    dome.lineStyle(1, 0xC8920A, 0.22);
     for (let gx = -140; gx <= 140; gx += 46) {
       dome.lineBetween(cx + gx, GAME_H - 160, cx + gx * 0.3, GAME_H + 10);
     }
+    // Warm glass panel glints
+    dome.fillStyle(0xFFCC66, 0.14);
+    dome.fillRoundedRect(cx - 100, GAME_H - 150, 68, 48, 6);
+    dome.fillRoundedRect(cx + 22, GAME_H - 138, 68, 48, 6);
 
     // ── Earth ────────────────────────────────────────────────────────
     const earth = this.add.graphics();
