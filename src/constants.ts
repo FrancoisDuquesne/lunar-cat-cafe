@@ -24,7 +24,7 @@ export type MenuId = typeof MENU_ITEMS[number]['id'];
 // DECORATION SYSTEM
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type DecorationCategory = 'furniture' | 'lighting' | 'plants' | 'wallDecor' | 'specialty';
+export type DecorationCategory = 'seating' | 'furniture' | 'lighting' | 'plants' | 'wallDecor' | 'specialty';
 
 export interface DecorationDef {
   id: string;
@@ -35,6 +35,8 @@ export interface DecorationDef {
   spriteKey: string;
   tileW: number;
   tileH: number;
+  seats?: number;    // seating items register a table slot when placed
+  minTier?: number;  // minimum cafe tier required to purchase
 }
 
 export interface PlacedDecoration {
@@ -61,25 +63,28 @@ export const CAFE_TIERS: CafeTier[] = [
 ];
 
 export const DECORATION_ITEMS: DecorationDef[] = [
+  // Seating — place to add table + chairs that customers can sit at
+  { id: 'table_single', name: 'Café Table',   category: 'seating',  cost:  90, ambianceValue: 0, spriteKey: 'obj_table',       tileW: 1, tileH: 1, seats: 1, minTier: 1 },
+  { id: 'table_group',  name: 'Group Booth',  category: 'seating',  cost: 170, ambianceValue: 0, spriteKey: 'obj_table_group',  tileW: 1, tileH: 1, seats: 2, minTier: 2 },
   // Furniture
-  { id: 'velvet_chair',   name: 'Velvet Chair',       category: 'furniture',  cost:  80, ambianceValue: 15, spriteKey: 'deco_velvet_chair',   tileW: 1, tileH: 1 },
-  { id: 'round_table',    name: 'Round Table',         category: 'furniture',  cost:  60, ambianceValue: 12, spriteKey: 'deco_round_table',    tileW: 1, tileH: 1 },
-  { id: 'booth_seat',     name: 'Booth Seat',          category: 'furniture',  cost: 160, ambianceValue: 28, spriteKey: 'deco_booth_seat',     tileW: 1, tileH: 1 },
+  { id: 'round_table',    name: 'Round Table',   category: 'furniture', cost:  60, ambianceValue: 12, spriteKey: 'deco_round_table',   tileW: 1, tileH: 1, minTier: 1 },
+  { id: 'velvet_chair',   name: 'Velvet Chair',  category: 'furniture', cost:  80, ambianceValue: 15, spriteKey: 'deco_velvet_chair',  tileW: 1, tileH: 1, minTier: 2 },
+  { id: 'booth_seat',     name: 'Booth Seat',    category: 'furniture', cost: 160, ambianceValue: 28, spriteKey: 'deco_booth_seat',    tileW: 1, tileH: 1, minTier: 3 },
   // Lighting
-  { id: 'fairy_lights',   name: 'Fairy Lights',        category: 'lighting',   cost:  50, ambianceValue: 10, spriteKey: 'deco_fairy_lights',   tileW: 1, tileH: 1 },
-  { id: 'neon_sign',      name: 'Neon Sign',           category: 'lighting',   cost: 180, ambianceValue: 28, spriteKey: 'deco_neon_sign',      tileW: 1, tileH: 1 },
-  { id: 'crystal_lamp',   name: 'Crystal Lamp',        category: 'lighting',   cost: 280, ambianceValue: 40, spriteKey: 'deco_crystal_lamp',   tileW: 1, tileH: 1 },
+  { id: 'fairy_lights',   name: 'Fairy Lights',  category: 'lighting',  cost:  50, ambianceValue: 10, spriteKey: 'deco_fairy_lights',  tileW: 1, tileH: 1, minTier: 1 },
+  { id: 'neon_sign',      name: 'Neon Sign',     category: 'lighting',  cost: 180, ambianceValue: 28, spriteKey: 'deco_neon_sign',     tileW: 1, tileH: 1, minTier: 2 },
+  { id: 'crystal_lamp',   name: 'Crystal Lamp',  category: 'lighting',  cost: 280, ambianceValue: 40, spriteKey: 'deco_crystal_lamp',  tileW: 1, tileH: 1, minTier: 3 },
   // Plants
-  { id: 'luna_fern',      name: 'Luna Fern',           category: 'plants',     cost:  55, ambianceValue: 12, spriteKey: 'deco_luna_fern',      tileW: 1, tileH: 1 },
-  { id: 'space_cactus',   name: 'Space Cactus',        category: 'plants',     cost:  90, ambianceValue: 18, spriteKey: 'deco_space_cactus',   tileW: 1, tileH: 1 },
-  { id: 'moon_bloom',     name: 'Moon Bloom',          category: 'plants',     cost: 160, ambianceValue: 30, spriteKey: 'deco_moon_bloom',     tileW: 1, tileH: 1 },
+  { id: 'luna_fern',      name: 'Luna Fern',     category: 'plants',    cost:  55, ambianceValue: 12, spriteKey: 'deco_luna_fern',     tileW: 1, tileH: 1, minTier: 1 },
+  { id: 'space_cactus',   name: 'Space Cactus',  category: 'plants',    cost:  90, ambianceValue: 18, spriteKey: 'deco_space_cactus',  tileW: 1, tileH: 1, minTier: 2 },
+  { id: 'moon_bloom',     name: 'Moon Bloom',    category: 'plants',    cost: 160, ambianceValue: 30, spriteKey: 'deco_moon_bloom',    tileW: 1, tileH: 1, minTier: 3 },
   // Wall decor
-  { id: 'star_map',       name: 'Star Map',            category: 'wallDecor',  cost: 120, ambianceValue: 22, spriteKey: 'deco_star_map',       tileW: 1, tileH: 1 },
-  { id: 'moon_portrait',  name: 'Moon Portrait',       category: 'wallDecor',  cost: 220, ambianceValue: 35, spriteKey: 'deco_moon_portrait',  tileW: 1, tileH: 1 },
+  { id: 'star_map',       name: 'Star Map',      category: 'wallDecor', cost: 120, ambianceValue: 22, spriteKey: 'deco_star_map',      tileW: 1, tileH: 1, minTier: 2 },
+  { id: 'moon_portrait',  name: 'Moon Portrait', category: 'wallDecor', cost: 220, ambianceValue: 35, spriteKey: 'deco_moon_portrait', tileW: 1, tileH: 1, minTier: 3 },
   // Specialty
-  { id: 'telescope',      name: 'Telescope',           category: 'specialty',  cost: 300, ambianceValue: 45, spriteKey: 'deco_telescope',      tileW: 1, tileH: 1 },
-  { id: 'rover_display',  name: 'Rover Display',       category: 'specialty',  cost: 400, ambianceValue: 55, spriteKey: 'deco_rover_display',  tileW: 1, tileH: 1 },
-  { id: 'cat_statue',     name: 'Cat Statue',          category: 'specialty',  cost: 240, ambianceValue: 35, spriteKey: 'deco_cat_statue',     tileW: 1, tileH: 1 },
+  { id: 'telescope',      name: 'Telescope',     category: 'specialty', cost: 300, ambianceValue: 45, spriteKey: 'deco_telescope',     tileW: 1, tileH: 1, minTier: 3 },
+  { id: 'rover_display',  name: 'Rover Display', category: 'specialty', cost: 400, ambianceValue: 55, spriteKey: 'deco_rover_display', tileW: 1, tileH: 1, minTier: 4 },
+  { id: 'cat_statue',     name: 'Cat Statue',    category: 'specialty', cost: 240, ambianceValue: 35, spriteKey: 'deco_cat_statue',    tileW: 1, tileH: 1, minTier: 4 },
 ];
 
 export const CAT_NAMES = ['Luna', 'Captain Whiskers', 'Nova', 'Comet', 'Orbit', 'Nebula'];
@@ -133,13 +138,14 @@ export interface EmployeeTypeDef {
   desc: string;
   badgeColor: number;
   badgeHex: string;
+  minTier?: number;
 }
 
 export const EMPLOYEE_TYPES: EmployeeTypeDef[] = [
-  { role: 'waiter',  name: 'Waiter',          cost: 150, max: 3, desc: 'Takes orders for you',         badgeColor: 0x60CC80, badgeHex: '#60CC80' },
-  { role: 'cook',    name: 'Cook',             cost: 250, max: 2, desc: 'Auto-starts cooking orders',   badgeColor: 0xFF9944, badgeHex: '#FF9944' },
-  { role: 'guard',   name: 'Security Guard',  cost: 200, max: 1, desc: '+5 reputation per day',         badgeColor: 0x6688DD, badgeHex: '#6688DD' },
-  { role: 'caterer', name: 'Wine Caterer',     cost: 300, max: 1, desc: '+25% tip bonus',               badgeColor: 0xDD88CC, badgeHex: '#DD88CC' },
+  { role: 'waiter',  name: 'Waiter',         cost: 150, max: 3, desc: 'Takes orders for you',       badgeColor: 0x60CC80, badgeHex: '#60CC80' },
+  { role: 'cook',    name: 'Cook',            cost: 250, max: 2, desc: 'Auto-starts cooking orders', badgeColor: 0xFF9944, badgeHex: '#FF9944' },
+  { role: 'guard',   name: 'Security Guard', cost: 200, max: 1, desc: '+5 reputation per day',       badgeColor: 0x6688DD, badgeHex: '#6688DD', minTier: 2 },
+  { role: 'caterer', name: 'Wine Caterer',   cost: 300, max: 1, desc: '+25% tip bonus',              badgeColor: 0xDD88CC, badgeHex: '#DD88CC', minTier: 3 },
 ];
 
 export const COLORS = {

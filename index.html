@@ -176,6 +176,7 @@
     }
     .hud-btn:hover  { background: rgba(240, 192, 24, 0.14); border-color: var(--c-gold); }
     .hud-btn:active { transform: scale(0.93); }
+    .hud-btn svg    { width: calc(18px * var(--gs)); height: calc(18px * var(--gs)); }
 
     /* ── ORDERS STRIP ─────────────────────────────────────────── */
     #orders-strip {
@@ -352,6 +353,7 @@
 
     .si.afford  { border-color: rgba(240,192,24,0.22); background: rgba(240,192,24,0.035); }
     .si.owned   { opacity: 0.45; border-color: rgba(85,204,85,0.25); }
+    .si.locked  { opacity: 0.38; border-color: rgba(80,60,40,0.3); }
 
     .si-icon {
       width: calc(42px * var(--gs)); height: calc(42px * var(--gs));
@@ -446,6 +448,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 0;
       pointer-events: auto;
     }
 
@@ -453,7 +456,7 @@
 
     .mo-title-wrap {
       text-align: center;
-      margin-bottom: calc(32px * var(--gs));
+      margin-bottom: calc(28px * var(--gs));
       animation: floatY 2.6s ease-in-out infinite;
     }
 
@@ -490,7 +493,7 @@
     .mo-buttons {
       display: flex;
       flex-direction: column;
-      gap: calc(14px * var(--gs));
+      gap: calc(12px * var(--gs));
       align-items: center;
     }
 
@@ -522,20 +525,53 @@
     .mo-btn:hover  { transform: scale(1.04) translateY(-2px); }
     .mo-btn:active { transform: scale(0.97); }
 
-    /* Bottom hints on menu */
-    #menu-hints {
-      position: fixed;
-      bottom: 18px;
-      left: 50%;
-      transform: translateX(-50%);
+    /* Controls card — sits inside #menu-overlay below buttons */
+    .mo-controls {
+      margin-top: calc(26px * var(--gs));
+      padding: calc(14px * var(--gs)) calc(28px * var(--gs));
+      background: rgba(8, 4, 20, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: calc(12px * var(--gs));
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       text-align: center;
-      pointer-events: none;
     }
-    #menu-hints p {
+
+    .mo-ctrl-title {
+      font-size: calc(9px * var(--gs));
+      color: #446677;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 700;
+      margin-bottom: calc(10px * var(--gs));
+    }
+
+    .mo-ctrl-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: calc(6px * var(--gs));
       font-size: calc(11px * var(--gs));
-      color: #334455;
+      color: #8aaabb;
       font-family: 'Space Mono', monospace;
-      line-height: 2.2;
+      line-height: 2;
+    }
+
+    .mo-key {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(136, 221, 255, 0.22);
+      border-radius: calc(4px * var(--gs));
+      padding: calc(1px * var(--gs)) calc(8px * var(--gs));
+      font-size: calc(10px * var(--gs));
+      color: #88ddff;
+      font-family: 'Space Mono', monospace;
+      white-space: nowrap;
+    }
+
+    .mo-ctrl-sep {
+      color: #334455;
+      margin: 0 calc(2px * var(--gs));
     }
 
     /* ── IN-GAME LEGEND ───────────────────────────────────────── */
@@ -551,6 +587,66 @@
       color: #2a3344;
       font-family: 'Space Mono', monospace;
       line-height: 2;
+    }
+
+    /* ── STORE BACKDROP ──────────────────────────────────────── */
+    #store-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      pointer-events: auto;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    /* ── TIER PROGRESS CARD ───────────────────────────────────── */
+    .sp-tier-card {
+      background: rgba(240, 192, 24, 0.06);
+      border: 1px solid rgba(240, 192, 24, 0.2);
+      border-radius: calc(9px * var(--gs));
+      padding: calc(10px * var(--gs)) calc(13px * var(--gs));
+      margin-bottom: calc(12px * var(--gs));
+    }
+    .sp-tier-maxed {
+      text-align: center;
+      color: var(--c-gold);
+      font-size: calc(12px * var(--gs));
+      font-weight: 700;
+    }
+    .sp-tier-row {
+      display: flex;
+      align-items: center;
+      gap: calc(8px * var(--gs));
+      margin-bottom: calc(7px * var(--gs));
+    }
+    .sp-tier-cur  { font-size: calc(11px * var(--gs)); font-weight: 700; color: var(--c-gold); }
+    .sp-tier-arrow{ color: #665533; font-size: calc(13px * var(--gs)); }
+    .sp-tier-nxt  { font-size: calc(11px * var(--gs)); font-weight: 700; color: #88ddff; }
+    .sp-tier-bar-track {
+      height: calc(6px * var(--gs));
+      background: rgba(255,255,255,0.07);
+      border-radius: calc(3px * var(--gs));
+      overflow: hidden;
+      margin-bottom: calc(5px * var(--gs));
+    }
+    .sp-tier-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #f0c018, #88ddff);
+      border-radius: calc(3px * var(--gs));
+      transition: width 0.5s ease;
+    }
+    .sp-tier-hint {
+      font-size: calc(10px * var(--gs));
+      color: #665533;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* ── SVG HUD ICONS ────────────────────────────────────────── */
+    .hud-svg {
+      width: calc(18px * var(--gs));
+      height: calc(18px * var(--gs));
+      flex-shrink: 0;
     }
 
     /* ── UTILITY ──────────────────────────────────────────────── */
@@ -699,8 +795,8 @@
     /* Mobile HUD tweaks */
     @media (pointer: coarse) {
       #hud-tier, .hud-sep:nth-of-type(n+3) { display: none; }
-      #menu-hints { display: none; }
       #legend { display: none; }
+      .mo-controls { display: none; }
     }
   </style>
 </head>
@@ -710,17 +806,35 @@
     <!-- ── HUD ─────────────────────────────────────────────── -->
     <div id="hud" class="glass hidden">
       <div class="hud-stat">
-        <span class="hud-icon">🪙</span>
+        <!-- coin -->
+        <svg class="hud-svg" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="9" fill="#f0c018" stroke="#a87e0a" stroke-width="1"/>
+          <circle cx="10" cy="10" r="6.5" fill="#d4a018"/>
+          <path d="M10 6v8M8 8h3.5a2 2 0 0 1 0 4H8" stroke="#6b4500" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        </svg>
         <span class="hud-val" id="stat-money">0</span>
       </div>
       <div class="hud-sep"></div>
       <div class="hud-stat">
-        <span class="hud-icon">⭐</span>
+        <!-- star / reputation -->
+        <svg class="hud-svg" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2l2.06 4.18L17 7.27l-3.5 3.41.83 4.82L10 13.06l-4.33 2.44.83-4.82L3 7.27l4.94-.09z" fill="#ffe044" stroke="#cc9900" stroke-width="0.8"/>
+        </svg>
         <span class="hud-val" id="stat-rep" style="min-width:32px">0</span>
       </div>
       <div class="hud-sep"></div>
       <div class="hud-stat">
-        <span class="hud-icon">🐱</span>
+        <!-- cat face -->
+        <svg class="hud-svg" viewBox="0 0 20 20" fill="none">
+          <polygon points="5,10 7,4 9,9" fill="#ff7a28"/>
+          <polygon points="11,9 13,4 15,10" fill="#ff7a28"/>
+          <circle cx="10" cy="13" r="6" fill="#ff7a28"/>
+          <circle cx="8" cy="12" r="1.3" fill="#222"/>
+          <circle cx="12" cy="12" r="1.3" fill="#222"/>
+          <circle cx="8.4" cy="11.4" r="0.5" fill="#fff"/>
+          <circle cx="12.4" cy="11.4" r="0.5" fill="#fff"/>
+          <path d="M8.5 15 Q10 16 11.5 15" stroke="#ff8899" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+        </svg>
         <span class="hud-val" id="stat-cat" style="color:#ff9ab0;min-width:46px">80%</span>
       </div>
       <div class="hud-sep"></div>
@@ -731,28 +845,49 @@
       <div class="hud-center">
         <span id="day-label">Day 1</span>
         <div id="day-bar-track"><div id="day-bar-fill"></div></div>
-        <span id="phase-text">☀️ Morning</span>
+        <span id="phase-text">Morning</span>
+        <span id="time-remaining" style="font-size:calc(10px * var(--gs));opacity:0.85;font-weight:600;letter-spacing:0.05em;color:#ffaa44;">5:00</span>
       </div>
       <div class="hud-right">
-        <button class="hud-btn" id="btn-store" title="Store (S/D)">🛒</button>
-        <button class="hud-btn" id="btn-menu"  title="Main menu">☰</button>
+        <!-- store (shopping bag) -->
+        <button class="hud-btn" id="btn-store" title="Store (F)">
+          <svg viewBox="0 0 20 20" fill="none">
+            <rect x="3" y="8" width="14" height="10" rx="2" fill="#f0c018" opacity="0.9"/>
+            <path d="M7 8 Q7 4 10 4 Q13 4 13 8" stroke="#a87e0a" stroke-width="1.5" fill="none"/>
+            <line x1="7" y1="11" x2="13" y2="11" stroke="#6b4500" stroke-width="1" opacity="0.5"/>
+          </svg>
+        </button>
+        <button class="hud-btn" id="btn-menu" title="Main menu">
+          <svg viewBox="0 0 20 20" fill="none">
+            <line x1="3" y1="6"  x2="17" y2="6"  stroke="#f0c018" stroke-width="2" stroke-linecap="round"/>
+            <line x1="3" y1="10" x2="17" y2="10" stroke="#f0c018" stroke-width="2" stroke-linecap="round"/>
+            <line x1="3" y1="14" x2="17" y2="14" stroke="#f0c018" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
     </div>
 
     <!-- ── ORDERS STRIP ───────────────────────────────────── -->
     <div id="orders-strip"></div>
 
+    <!-- ── STORE BACKDROP ───────────────────────────────────── -->
+    <div id="store-backdrop"></div>
+
     <!-- ── STORE PANEL ────────────────────────────────────── -->
     <div id="store-panel">
       <div class="sp-header">
-        <span class="sp-title">🛒 Store</span>
-        <span class="sp-close" id="store-close">✕</span>
+        <span class="sp-title">
+          <svg viewBox="0 0 18 18" fill="none" style="width:16px;height:16px;vertical-align:middle;margin-right:6px">
+            <rect x="2" y="7" width="14" height="10" rx="2" fill="#f0c018" opacity="0.9"/>
+            <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="#a87e0a" stroke-width="1.5" fill="none"/>
+          </svg>Store
+        </span>
+        <span class="sp-close" id="store-close">&#10005;</span>
       </div>
       <div class="sp-tabs">
-        <div class="sp-tab active" data-tab="seating">🪑 Tables</div>
-        <div class="sp-tab" data-tab="kitchen">🔧 Kitchen</div>
-        <div class="sp-tab" data-tab="staff">👔 Staff</div>
-        <div class="sp-tab" data-tab="decor">✦ Decor</div>
+        <div class="sp-tab active" data-tab="furnish">Furnish</div>
+        <div class="sp-tab" data-tab="kitchen">Kitchen</div>
+        <div class="sp-tab" data-tab="staff">Staff</div>
       </div>
       <div class="sp-content" id="store-content"></div>
     </div>
@@ -765,19 +900,16 @@
         <div class="mo-sub">~ a cozy lunar café ~</div>
       </div>
       <div class="mo-buttons" id="menu-buttons"></div>
+      <div class="mo-controls" id="menu-hints">
+        <div class="mo-ctrl-title">How to Play</div>
+        <div class="mo-ctrl-row"><span class="mo-key">WASD</span> <span class="mo-ctrl-sep">·</span> <span class="mo-key">arrows</span> Move</div>
+        <div class="mo-ctrl-row"><span class="mo-key">E</span> Interact — take orders · cook · deliver</div>
+        <div class="mo-ctrl-row"><span class="mo-key">F</span> Store <span class="mo-ctrl-sep">·</span> <span class="mo-key">ESC</span> Menu</div>
+      </div>
     </div>
 
-    <div id="menu-hints" class="hidden">
-      <p>WASD / Arrow keys: Move</p>
-      <p>E / Space: Interact &nbsp;·&nbsp; S / D: Store &nbsp;·&nbsp; ESC: Menu</p>
-    </div>
-
-    <!-- ── IN-GAME LEGEND ─────────────────────────────────── -->
-    <div id="legend" class="hidden">
-      <div class="leg-line">WASD: Move</div>
-      <div class="leg-line">E: Interact</div>
-      <div class="leg-line">S/D: Store</div>
-    </div>
+    <!-- ── IN-GAME LEGEND (kept for reference, never shown) ── -->
+    <div id="legend" class="hidden"></div>
 
     <!-- ── TOUCH CONTROLS ───────────────────────────────────── -->
     <div id="touch-controls">
@@ -788,7 +920,9 @@
       </div>
       <div id="touch-right">
         <button id="btn-interact">
-          <span class="bi-icon">⚡</span>
+          <svg class="bi-icon" viewBox="0 0 24 24" fill="none" style="width:22px;height:22px">
+            <polygon points="13,2 4,14 11,14 11,22 20,10 13,10" fill="#ff88cc" stroke="#ff44aa" stroke-width="1"/>
+          </svg>
           <span>ACT</span>
         </button>
       </div>
@@ -798,7 +932,14 @@
 
   <!-- ── PORTRAIT WARNING ───────────────────────────────────── -->
   <div id="rotate-prompt">
-    <div class="rp-icon">📱</div>
+    <div class="rp-icon">
+      <svg viewBox="0 0 48 48" fill="none" style="width:54px;height:54px">
+        <rect x="12" y="4" width="24" height="40" rx="4" stroke="#f0c018" stroke-width="2.5" fill="none"/>
+        <circle cx="24" cy="38" r="2" fill="#f0c018"/>
+        <path d="M20 16 L28 16 M20 20 L28 20" stroke="#f0c018" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M36 24 L42 24 M39 21 L42 24 L39 27" stroke="#f0c018" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
     <p>Rotate to landscape</p>
     <small>Cat Café on the Moon plays best in landscape mode</small>
   </div>

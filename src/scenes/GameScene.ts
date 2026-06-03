@@ -12,6 +12,7 @@ import { Customer } from '../entities/Customer';
 import { Employee } from '../entities/Employee';
 import { loadGame, defaultSaveState, saveGame } from '../systems/SaveSystem';
 import { Pathfinder } from '../systems/Pathfinder';
+import type { ReadyStation } from '../entities/Employee';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAP DEFINITION  —  Central Kitchen Island layout
@@ -106,6 +107,9 @@ export class GameScene extends Phaser.Scene {
   private uiRefreshTimer = 0;
   private pathfinder!: Pathfinder;
   private customerPathfinder!: Pathfinder;
+  private deliveryArrow?: Phaser.GameObjects.Text;
+  private catPetCooldowns = new Map<number, number>();
+  private employeeDeliveryIds = new Set<number>();
 
   // Store / decoration system
   private isStorePanelOpen = false;
@@ -116,6 +120,10 @@ export class GameScene extends Phaser.Scene {
   private occupiedDecoTiles = new Set<string>();
   private hardBlockedTiles = new Set<string>();
   private currentTierLevel = 1;
+  // Placed-table tracking (for removal support)
+  private tableFurnitureBodies = new Map<string, Phaser.Physics.Arcade.Image>();
+  private tableChairSprites   = new Map<string, Phaser.GameObjects.Image[]>();
+  private tableLabels         = new Map<string, Phaser.GameObjects.Text>();
 
   constructor() { super('GameScene'); }
 
@@ -146,6 +154,12 @@ export class GameScene extends Phaser.Scene {
     this.decorationSprites = new Map();
     this.occupiedDecoTiles = new Set();
     this.hardBlockedTiles = new Set();
+    this.tableFurnitureBodies = new Map();
+    this.tableChairSprites = new Map();
+    this.tableLabels = new Map();
+    this.deliveryArrow = undefined;
+    this.catPetCooldowns = new Map();
+    this.employeeDeliveryIds = new Set();
 
     const saved = loadGame() ?? defaultSaveState();
     this.money = saved.money;
@@ -193,10 +207,14 @@ export class GameScene extends Phaser.Scene {
 
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on('down', () => {
       if (this.isStorePanelOpen) { this.closeStorePanel(); }
-      else { this.goToMenu(); }
+      else if (this.pendingDecorationDef) {
+        this.pendingDecorationDef = null;
+        this.ghostSprite?.destroy(); this.ghostSprite = null;
+        this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
+      } else { this.goToMenu(); }
     });
 
-    // S key (or D for backward compat) — toggle store panel
+    // F key — toggle store panel (S and D are reserved for WASD movement)
     const toggleStore = () => {
       if (this.isStorePanelOpen) {
         this.closeStorePanel();
@@ -206,8 +224,7 @@ export class GameScene extends Phaser.Scene {
         this.game.events.emit('game_event', { type: 'open_store_panel' });
       }
     };
-    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D).on('down', toggleStore);
-    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S).on('down', toggleStore);
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', toggleStore);
 
     this.game.events.on('game_event', (evt: {
       type: string; defId?: string; slotId?: number;
@@ -593,10 +610,74 @@ export class GameScene extends Phaser.Scene {
       if (!def) continue;
       const wx = pd.tileX * TILE + TILE / 2;
       const wy = pd.tileY * TILE + TILE / 2;
-      const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000);
-      this.decorationSprites.set(`${pd.tileX},${pd.tileY}`, spr);
+      if (def.seats) {
+        this.placeTableVisuals(def, pd.tileX, pd.tileY, wx, wy, false);
+      } else {
+        const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000);
+        this.decorationSprites.set(`${pd.tileX},${pd.tileY}`, spr);
+      }
       this.occupiedDecoTiles.add(`${pd.tileX},${pd.tileY}`);
     }
+  }
+
+  private placeTableVisuals(
+    def: DecorationDef, tileX: number, tileY: number,
+    wx: number, wy: number, animate: boolean,
+  ): void {
+    const isGroup = def.id === 'table_group';
+    const bW = isGroup ? 68 : 44;
+
+    // Main table image
+    const spr = this.add.image(wx, wy, def.spriteKey)
+      .setOrigin(0.5, 0.8)
+      .setDepth(3 + wy / 10000);
+    if (animate) { spr.setAlpha(0); this.tweens.add({ targets: spr, alpha: 1, duration: 250 }); }
+    this.decorationSprites.set(`${tileX},${tileY}`, spr);
+
+    // Physics body for collision
+    const tBody = this.furnitureGroup.create(wx, wy, def.spriteKey) as Phaser.Physics.Arcade.Image;
+    tBody.setVisible(false).setSize(bW, 28).setOffset(4, 2).refreshBody();
+    this.tableFurnitureBodies.set(`${tileX},${tileY}`, tBody);
+
+    // Update pathfinders
+    const body = tBody.body as Phaser.Physics.Arcade.StaticBody;
+    if (body) {
+      this.pathfinder.blockRect(body.x, body.y, body.width, body.height);
+      this.customerPathfinder.blockRect(body.x, body.y, body.width, body.height);
+    }
+
+    // Chairs
+    const chairs: Phaser.GameObjects.Image[] = [];
+    if (isGroup) {
+      chairs.push(this.add.image(wx - 18, wy - 26, 'obj_chair').setDepth(2).setFlipY(true));
+      chairs.push(this.add.image(wx + 18, wy - 26, 'obj_chair').setDepth(2).setFlipY(true));
+      chairs.push(this.add.image(wx - 18, wy + 26, 'obj_chair').setDepth(4));
+      chairs.push(this.add.image(wx + 18, wy + 26, 'obj_chair').setDepth(4));
+    } else {
+      chairs.push(this.add.image(wx, wy - 26, 'obj_chair').setDepth(2).setFlipY(true));
+      chairs.push(this.add.image(wx, wy + 26, 'obj_chair').setDepth(4));
+    }
+    if (animate) chairs.forEach(c => { c.setAlpha(0); this.tweens.add({ targets: c, alpha: 1, duration: 350 }); });
+    this.tableChairSprites.set(`${tileX},${tileY}`, chairs);
+
+    // Register TableSlot — IDs 100+ to avoid conflict with TABLE_SLOT_DEFS (0–11)
+    const tableId = 100 + this.tables.filter(t => t.id >= 100).length;
+    const seats = isGroup
+      ? [
+          { seatX: wx - 18, seatY: wy + 22, occupied: false, customerId: null },
+          { seatX: wx + 18, seatY: wy + 22, occupied: false, customerId: null },
+        ]
+      : [{ seatX: wx, seatY: wy + 22, occupied: false, customerId: null }];
+    this.tables.push({ id: tableId, worldX: wx, worldY: wy, seats });
+
+    // Table label
+    const label = this.add.text(wx, wy - 20, `T${tableId + 1}`, {
+      fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
+      stroke: '#3A1A00', strokeThickness: 3,
+    }).setOrigin(0.5, 0.5).setDepth(4.5);
+    this.tableLabels.set(`${tileX},${tileY}`, label);
+
+    this.hardBlockedTiles.add(`${tileX},${tileY}`);
   }
 
   computeAmbiance(): number {
@@ -640,7 +721,7 @@ export class GameScene extends Phaser.Scene {
     (this.player.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0);
     this.physics.world.pause();
 
-    this.decorateOverlayText = this.add.text(GAME_W / 2 - 150, 62, '✦ STORE — S/D or ESC to close', {
+    this.decorateOverlayText = this.add.text(GAME_W / 2, 62, 'STORE  —  F or ESC to close', {
       fontSize: '13px', color: '#FFD700', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(105).setAlpha(0);
@@ -658,9 +739,15 @@ export class GameScene extends Phaser.Scene {
 
   private refreshGhostSprite(): void {
     this.ghostSprite?.destroy(); this.ghostSprite = null;
+    this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
     if (!this.pendingDecorationDef) return;
     this.ghostSprite = this.add.image(-999, -999, this.pendingDecorationDef.spriteKey)
       .setAlpha(0.55).setDepth(150);
+    this.decorateOverlayText = this.add.text(GAME_W / 2, 62, 'Click floor to place  ·  ESC to cancel', {
+      fontSize: '13px', color: '#FFD700', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(105).setAlpha(0);
+    this.tweens.add({ targets: this.decorateOverlayText, alpha: 1, duration: 300 });
   }
 
   private handleDecorateClick(worldX: number, worldY: number): void {
@@ -684,11 +771,16 @@ export class GameScene extends Phaser.Scene {
       this.occupiedDecoTiles.add(`${tileX},${tileY}`);
       const wx = tileX * TILE + TILE / 2;
       const wy = tileY * TILE + TILE / 2;
-      const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000).setAlpha(0);
-      this.tweens.add({ targets: spr, alpha: 1, duration: 250 });
-      this.decorationSprites.set(`${tileX},${tileY}`, spr);
 
-      this.showFloatingText(wx, wy - 20, `+${def.ambianceValue} ✦ ambiance`, '#FFDD44');
+      if (def.seats) {
+        this.placeTableVisuals(def, tileX, tileY, wx, wy, true);
+        this.showFloatingText(wx, wy - 20, `+${def.seats} seat${def.seats > 1 ? 's' : ''} added!`, '#AAFFAA');
+      } else {
+        const spr = this.add.image(wx, wy, def.spriteKey).setDepth(3.5 + wy / 10000).setAlpha(0);
+        this.tweens.add({ targets: spr, alpha: 1, duration: 250 });
+        this.decorationSprites.set(`${tileX},${tileY}`, spr);
+        this.showFloatingText(wx, wy - 20, `+${def.ambianceValue} ✦ ambiance`, '#FFDD44');
+      }
       this.showFloatingText(wx, wy + 4, `-${def.cost} ✦`, '#FF8888');
       this.playChime();
       this.checkTierUp();
@@ -700,9 +792,30 @@ export class GameScene extends Phaser.Scene {
         if (idx === -1) return;
         const pd = this.shopState.placedDecorations[idx];
         const def = DECORATION_ITEMS.find(d => d.id === pd.defId);
+
+        if (def?.seats) {
+          // Check nobody is seated
+          const tx = pd.tileX * TILE + TILE / 2;
+          const ty = pd.tileY * TILE + TILE / 2;
+          const tableSlot = this.tables.find(t => t.worldX === tx && t.worldY === ty && t.id >= 100);
+          if (tableSlot?.seats.some(s => s.customerId !== null)) {
+            this.showFloatingText(tileX * TILE + TILE/2, tileY * TILE, 'Someone is seated!', '#FF6666');
+            return;
+          }
+          // Remove table slot and physics
+          if (tableSlot) this.tables.splice(this.tables.indexOf(tableSlot), 1);
+          const tBody = this.tableFurnitureBodies.get(key);
+          if (tBody) { this.furnitureGroup.remove(tBody, true, true); this.tableFurnitureBodies.delete(key); }
+          this.tableChairSprites.get(key)?.forEach(c => c.destroy());
+          this.tableChairSprites.delete(key);
+          this.tableLabels.get(key)?.destroy();
+          this.tableLabels.delete(key);
+        }
+
         const refund = def ? Math.floor(def.cost * 0.5) : 0;
         this.shopState.placedDecorations.splice(idx, 1);
         this.occupiedDecoTiles.delete(key);
+        this.hardBlockedTiles.delete(key);
         this.decorationSprites.get(key)?.destroy();
         this.decorationSprites.delete(key);
         this.money += refund;
@@ -823,7 +936,7 @@ export class GameScene extends Phaser.Scene {
       { col: 2,  row: 12 }, { col: 26, row: 12 },
       { col: 2,  row: 6  }, { col: 26, row: 6  },
     ];
-    const bounds = new Phaser.Geom.Rectangle(TILE, 11 * TILE, 27 * TILE, 3 * TILE);
+    const bounds = new Phaser.Geom.Rectangle(TILE, 4 * TILE, 27 * TILE, 10 * TILE);
 
     catData.forEach((data, i) => {
       const pos = catPositions[i % catPositions.length];
@@ -863,6 +976,38 @@ export class GameScene extends Phaser.Scene {
         this.playPop();
       }
     };
+
+    emp.onPickupFood = (stationId) => {
+      const stn = this.stations.find(s => s.id === stationId);
+      if (!stn || !stn.isCooking || stn.cookProgress < 1 || stn.currentOrderId === null) return null;
+      const customer = this.customers.find(c => c.customerId === stn.currentOrderId && c.aiState === 'waiting_food');
+      if (!customer?.order) return null;
+      const itemId = customer.order.id;
+      stn.isCooking = false;
+      stn.cookProgress = 0;
+      stn.currentOrderId = null;
+      stn.progressBg?.destroy(); stn.progressBg = undefined;
+      stn.progressFill?.destroy(); stn.progressFill = undefined;
+      stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
+      stn.sprite.clearTint();
+      this.playCook();
+      return itemId;
+    };
+
+    emp.onDeliverFood = (customerId, itemId) => {
+      const c = this.customers.find(cu => cu.customerId === customerId);
+      if (!c || c.aiState !== 'waiting_food' || c.order?.id !== itemId) return;
+      c.receiveFood();
+      const catererBonus = 1 + (this.shopState.caterers ?? 0) * 0.25;
+      const earned = Math.round(c.getTip() * catererBonus);
+      this.money += earned;
+      this.reputation = Math.min(100, this.reputation + 1);
+      this.totalServed++;
+      this.showFloatingText(c.x, c.y - 30, `+${earned} ✦`, '#FFD700');
+      this.playChime();
+      this.emitUIUpdate();
+    };
+
     this.physics.add.collider(emp, this.wallGroup);
     this.employees.push(emp);
   }
@@ -893,8 +1038,10 @@ export class GameScene extends Phaser.Scene {
 
   private scheduleNextCustomer(): void {
     const repFactor = Math.max(0.4, 1 - this.reputation * 0.01);
-    const delay = CUSTOMER_SPAWN_MS * repFactor + Phaser.Math.Between(-3000, 3000);
-    this.customerSpawnTimer = Math.max(5000, delay);
+    // Rush hour: afternoon spawns 45% faster, evening 20% faster
+    const phaseMult = this.dayPhase === 'afternoon' ? 0.55 : this.dayPhase === 'evening' ? 0.80 : 1.0;
+    const delay = CUSTOMER_SPAWN_MS * repFactor * phaseMult + Phaser.Math.Between(-2000, 2000);
+    this.customerSpawnTimer = Math.max(4000, delay);
   }
 
   private spawnCustomer(): void {
@@ -919,6 +1066,33 @@ export class GameScene extends Phaser.Scene {
     freeSeat.occupied = true;
     freeSeat.customerId = customer.customerId;
     this.physics.add.collider(customer, this.wallGroup);
+
+    // Day 1 first customer — show tutorial hint
+    if (this.day === 1 && this.nextCustomerId === 2) {
+      this.time.delayedCall(4000, () => this.showTutorialHint());
+    }
+  }
+
+  private showTutorialHint(): void {
+    const hints = [
+      { y: GAME_H / 2 - 30, text: 'Walk to a customer and press E to take their order!' },
+      { y: GAME_H / 2 + 10, text: 'Then cook at the matching station and deliver the food.' },
+    ];
+    hints.forEach((h, i) => {
+      const t = this.add.text(GAME_W / 2, h.y, h.text, {
+        fontSize: '13px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 3, backgroundColor: '#00000066',
+        padding: { x: 8, y: 4 },
+      }).setOrigin(0.5).setDepth(190).setAlpha(0);
+      this.tweens.add({
+        targets: t, alpha: 1, duration: 400, delay: i * 200,
+        onComplete: () => {
+          this.time.delayedCall(4000, () => {
+            this.tweens.add({ targets: t, alpha: 0, duration: 600, onComplete: () => t.destroy() });
+          });
+        },
+      });
+    });
   }
 
   private spawnGroup(table: TableSlot): void {
@@ -1080,16 +1254,32 @@ export class GameScene extends Phaser.Scene {
 
       case 'cat': {
         const cat = this.cats.find(k => k.catId === ctx.targetId);
-        if (cat) { cat.pet(); this.playPop(); }
+        if (cat) {
+          const lastPet = this.catPetCooldowns.get(cat.catId) ?? -Infinity;
+          const PET_COOLDOWN_MS = 8000;
+          if (this.time.now - lastPet < PET_COOLDOWN_MS) {
+            this.showFloatingText(cat.x, cat.y - 30, 'Purring...', '#AACCDD');
+          } else {
+            cat.pet();
+            this.playPop();
+            const bonus = 3 + Math.floor(cat.happiness / 25);
+            this.money += bonus;
+            this.catPetCooldowns.set(cat.catId, this.time.now);
+            this.showFloatingText(cat.x, cat.y - 30, `+${bonus} ✦`, '#FFD700');
+            this.emitUIUpdate();
+          }
+        }
         break;
       }
     }
   }
 
   private getPendingOrderForStation(type: 'coffee' | 'stove' | 'prep'): { customerId: number; item: MenuItemDef } | null {
+    const carriedId = this.player?.getCarriedFoodId();
     for (const c of this.customers) {
       if (!c.active) continue;
       if ((c.aiState === 'order_taken' || c.aiState === 'waiting_food') && c.order?.station === type) {
+        if (carriedId && c.order?.id === carriedId) continue; // already being carried by player
         const alreadyCooking = this.stations.some(s => s.isCooking && s.currentOrderId === c.customerId);
         if (!alreadyCooking) return { customerId: c.customerId, item: c.order };
       }
@@ -1151,6 +1341,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // DELIVERY ARROW
+  // ─────────────────────────────────────────────────────────────────────
+
+  private updateDeliveryArrow(): void {
+    const carriedId = this.player?.getCarriedFoodId();
+    if (!carriedId) {
+      this.deliveryArrow?.setVisible(false);
+      return;
+    }
+    const target = this.customers.find(c => c.active && c.aiState === 'waiting_food' && c.order?.id === carriedId);
+    if (!target) {
+      this.deliveryArrow?.setVisible(false);
+      return;
+    }
+
+    if (!this.deliveryArrow) {
+      this.deliveryArrow = this.add.text(0, 0, '▼', {
+        fontSize: '14px', color: '#FFD700', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1).setDepth(55);
+    }
+
+    const bounce = Math.sin(this.time.now * 0.006) * 3;
+    this.deliveryArrow.setPosition(target.x, target.y - 56 + bounce).setVisible(true);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // INTERACTION PROMPT
   // ─────────────────────────────────────────────────────────────────────
 
@@ -1175,7 +1392,9 @@ export class GameScene extends Phaser.Scene {
     }
     const txt = this.interactionPrompt.getData('txt') as Phaser.GameObjects.Text;
     txt.setText(ctx.label);
-    this.interactionPrompt.setPosition(this.player.x - 120, this.player.y - 56);
+    const promptX = Phaser.Math.Clamp(this.player.x - 120, 4, GAME_W - 244);
+    const promptY = Phaser.Math.Clamp(this.player.y - 56, 60, GAME_H - 36);
+    this.interactionPrompt.setPosition(promptX, promptY);
     this.interactionPrompt.setVisible(true);
   }
 
@@ -1252,7 +1471,7 @@ export class GameScene extends Phaser.Scene {
     // Cat shop only (tables/staff/kitchen are in the in-game store)
     this.buildCatShopButtons(cx, 260);
 
-    const storeHint = this.add.text(cx, 388, '— Press S / D during the day to open the Store —', {
+    const storeHint = this.add.text(cx, 388, '— Press F during the day to open the Store —', {
       fontSize: '10px', color: '#887755', fontFamily: 'monospace',
     }).setOrigin(0.5, 0).setDepth(202);
     void storeHint;
@@ -1449,6 +1668,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Placement mode — store is closed but player is placing a decoration/table
+    if (this.pendingDecorationDef) {
+      if (pointer.y > 58) this.handleDecorateClick(pointer.worldX, pointer.worldY);
+      return;
+    }
+
     if (pointer.y < 58) return;
     if (pointer.x > GAME_W - 160 && pointer.y < 260) return;
 
@@ -1600,8 +1825,8 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.dayEnded && this.dayEndShown) return;
 
-    // Ghost cursor for decor placement (works while store is open)
-    if (this.isStorePanelOpen && this.ghostSprite && this.pendingDecorationDef) {
+    // Ghost cursor for decor placement
+    if (this.ghostSprite && this.pendingDecorationDef) {
       const ptr = this.input.activePointer;
       const tileX = Math.floor(ptr.worldX / TILE);
       const tileY = Math.floor(ptr.worldY / TILE);
@@ -1632,7 +1857,20 @@ export class GameScene extends Phaser.Scene {
     const waitingForOrders = this.customers
       .filter(c => c.active && c.aiState === 'waiting_order')
       .map(c => ({ customerId: c.customerId, x: c.x, y: c.y }));
-    this.employees.forEach(emp => emp.update(delta, waitingForOrders, this.employeeAssignedIds));
+
+    const readyStations: ReadyStation[] = this.stations
+      .filter(s => s.isCooking && s.cookProgress >= 1 && s.currentOrderId !== null)
+      .flatMap(s => {
+        const customer = this.customers.find(
+          c => c.customerId === s.currentOrderId && c.aiState === 'waiting_food',
+        );
+        if (!customer) return [];
+        return [{ stationId: s.id, stationX: s.worldX, stationY: s.worldY + 16, customerId: customer.customerId, customerX: customer.x, customerY: customer.y }];
+      });
+
+    this.employees.forEach(emp => emp.update(
+      delta, waitingForOrders, this.employeeAssignedIds, readyStations, this.employeeDeliveryIds,
+    ));
 
     for (let i = this.customers.length - 1; i >= 0; i--) {
       const c = this.customers[i];
@@ -1643,6 +1881,7 @@ export class GameScene extends Phaser.Scene {
           if (seat) { seat.occupied = false; seat.customerId = null; break; }
         }
         this.employeeAssignedIds.delete(c.customerId);
+        this.employeeDeliveryIds.delete(c.customerId);
         c.cleanup();
         c.destroy();
         this.customers.splice(i, 1);
@@ -1667,6 +1906,20 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.stations.forEach(stn => {
+      // Pulse blue-white when an order is waiting to be started here
+      if (!stn.isCooking) {
+        const hasPending = this.getPendingOrderForStation(stn.type) !== null;
+        if (hasPending) {
+          const t = (Math.sin(this.time.now * 0.005) + 1) / 2; // 0–1
+          const r = Math.round(0xAA + t * 0x55);
+          const g = Math.round(0xCC + t * 0x33);
+          const b = 0xFF;
+          stn.sprite.setTint((r << 16) | (g << 8) | b);
+        } else {
+          stn.sprite.clearTint();
+        }
+      }
+
       if (stn.isCooking && stn.cookProgress < 1) {
         stn.cookProgress = Math.min(1, stn.cookProgress + delta / stn.cookTargetMs);
         if (stn.progressFill && stn.progressBg) {
@@ -1703,6 +1956,9 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.hideInteractionPrompt();
     }
+
+    // Delivery arrow: pulsing ▼ above the target customer when carrying food
+    this.updateDeliveryArrow();
 
     this.dayProgress = Math.min(1, this.dayProgress + delta / DAY_DURATION_MS);
     const phase = this.dayProgress < 0.33 ? 'morning' : this.dayProgress < 0.66 ? 'afternoon' : 'evening';
