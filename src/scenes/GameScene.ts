@@ -1134,6 +1134,7 @@ export class GameScene extends Phaser.Scene {
       this, pos.col * TILE + TILE/2, pos.row * TILE + TILE/2,
       this.employees.length, EMPLOYEE_NAMES[this.employees.length % EMPLOYEE_NAMES.length],
     );
+    emp.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
     emp.onTakeOrder = (customerId) => {
       const c = this.customers.find(cu => cu.customerId === customerId);
       if (c && c.aiState === 'waiting_order') {

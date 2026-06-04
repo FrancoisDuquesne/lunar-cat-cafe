@@ -29,6 +29,13 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
   private targetStationId: number | null = null;
   private foodCarrySprite?: Phaser.GameObjects.Sprite;
 
+  // Pathfinding
+  pathFinder?: (fx: number, fy: number, tx: number, ty: number) => Array<{x: number; y: number}>;
+  private navPath: Array<{x: number; y: number}> = [];
+  private stuckTimer = 0;
+  private lastX = 0;
+  private lastY = 0;
+
   onTakeOrder?: (customerId: number) => void;
   onPickupFood?: (stationId: number) => string | null;
   onDeliverFood?: (customerId: number, itemId: string) => void;
@@ -54,7 +61,68 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
 
     this.wanderX = x;
     this.wanderY = y;
+    this.lastX = x;
+    this.lastY = y;
   }
+
+  // ── Navigation helpers ─────────────────────────────────────────────────
+
+  private startNav(tx: number, ty: number): void {
+    if (this.pathFinder) {
+      const path = this.pathFinder(this.x, this.y, tx, ty);
+      this.navPath = path.length > 0 ? path : [{ x: tx, y: ty }];
+    } else {
+      this.navPath = [{ x: tx, y: ty }];
+    }
+    this.stuckTimer = 0;
+    this.lastX = this.x;
+    this.lastY = this.y;
+  }
+
+  // Move along navPath toward (finalX, finalY). Returns true when within arrivalDist.
+  private followPath(delta: number, speed: number, finalX: number, finalY: number, arrivalDist: number): boolean {
+    const fdx = finalX - this.x;
+    const fdy = finalY - this.y;
+    if (Math.sqrt(fdx * fdx + fdy * fdy) < arrivalDist) {
+      (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+      this.navPath = [];
+      return true;
+    }
+
+    // Advance past waypoints we've reached
+    while (this.navPath.length > 1) {
+      const wp = this.navPath[0];
+      const wx = wp.x - this.x, wy = wp.y - this.y;
+      if (Math.sqrt(wx * wx + wy * wy) < 16) {
+        this.navPath.shift();
+      } else {
+        break;
+      }
+    }
+
+    const target = this.navPath[0] ?? { x: finalX, y: finalY };
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    (this.body as Phaser.Physics.Arcade.Body).setVelocity((dx / dist) * speed, (dy / dist) * speed);
+
+    // Stuck detection: if we haven't moved 4px in 1.5s, recompute the path
+    this.stuckTimer += delta;
+    if (this.stuckTimer > 1500) {
+      const moved = Math.sqrt((this.x - this.lastX) ** 2 + (this.y - this.lastY) ** 2);
+      if (moved < 4) {
+        this.startNav(finalX, finalY);
+      } else {
+        this.lastX = this.x;
+        this.lastY = this.y;
+      }
+      this.stuckTimer = 0;
+    }
+
+    return false;
+  }
+
+  // ── Main update ────────────────────────────────────────────────────────
 
   update(
     delta: number,
@@ -99,6 +167,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
             this.targetY = orderTarget.y;
             this.aiState = 'going_to_customer';
             assignedIds.add(orderTarget.customerId);
+            this.startNav(this.targetX, this.targetY);
           } else {
             const station = readyStations.find(s => !stationDeliveryIds.has(s.customerId));
             if (station) {
@@ -108,6 +177,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
               this.targetY = station.stationY;
               this.aiState = 'going_to_station';
               stationDeliveryIds.add(station.customerId);
+              this.startNav(this.targetX, this.targetY);
             }
           }
         }
@@ -121,17 +191,19 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.targetCustomerId = null;
           this.aiState = 'idle';
           this.idleTimer = 1000;
+          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
           break;
         }
-        this.targetX = still.x;
-        this.targetY = still.y;
 
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        // Re-target if customer moved significantly (shouldn't happen when seated, but just in case)
+        if (Math.abs(still.x - this.targetX) > 8 || Math.abs(still.y - this.targetY) > 8) {
+          this.targetX = still.x;
+          this.targetY = still.y;
+          this.startNav(this.targetX, this.targetY);
+        }
 
-        if (dist < 40) {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+        const arrived = this.followPath(delta, 85, this.targetX, this.targetY, 40);
+        if (arrived) {
           if (this.targetCustomerId !== null && this.onTakeOrder) {
             this.onTakeOrder(this.targetCustomerId);
           }
@@ -140,8 +212,6 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.aiState = 'idle';
           this.idleTimer = 2000;
           this.wanderTimer = 0;
-        } else {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity((dx / dist) * 85, (dy / dist) * 85);
         }
         break;
       }
@@ -156,15 +226,12 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.targetStationId = null;
           this.aiState = 'idle';
           this.idleTimer = 500;
+          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
           break;
         }
 
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-        if (dist < 48) {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+        const arrived = this.followPath(delta, 90, this.targetX, this.targetY, 48);
+        if (arrived) {
           if (this.targetStationId !== null && this.onPickupFood) {
             const itemId = this.onPickupFood(this.targetStationId);
             if (itemId && this.targetCustomerId !== null) {
@@ -177,6 +244,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
               this.targetY = stationStillReady.customerY;
               this.aiState = 'delivering_food';
               this.targetStationId = null;
+              this.startNav(this.targetX, this.targetY);
             } else {
               if (this.targetCustomerId !== null) stationDeliveryIds.delete(this.targetCustomerId);
               this.targetCustomerId = null;
@@ -185,19 +253,13 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
               this.idleTimer = 500;
             }
           }
-        } else {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity((dx / dist) * 90, (dy / dist) * 90);
         }
         break;
       }
 
       case 'delivering_food': {
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-        if (dist < 40) {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+        const arrived = this.followPath(delta, 90, this.targetX, this.targetY, 40);
+        if (arrived) {
           if (this.targetCustomerId !== null && this.carriedFoodItemId && this.onDeliverFood) {
             this.onDeliverFood(this.targetCustomerId, this.carriedFoodItemId);
           }
@@ -209,8 +271,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.aiState = 'idle';
           this.idleTimer = 2000;
           this.wanderTimer = 0;
-        } else {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity((dx / dist) * 90, (dy / dist) * 90);
+          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
         }
         break;
       }
