@@ -61,6 +61,7 @@ export interface ShopState {
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
   bookings?: number;
+  ownedStations?: string[];
 }
 
 export interface OrderInfo {

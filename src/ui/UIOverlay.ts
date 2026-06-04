@@ -24,6 +24,7 @@ export interface UIState {
   guards?: number;
   caterers?: number;
   extraMachines?: number;
+  ownedStations?: string[];
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
 }
@@ -166,6 +167,22 @@ const ITEM_ICONS: Record<string, string> = {
     <circle cx="19.5" cy="11" r="2.8" fill="#223344" stroke="#556677" stroke-width="1"/>
     <rect x="8.5" y="17.5" width="7" height="2" rx="1" fill="#ff8844"/>
     <rect x="10" y="19.5" width="5" height="3" rx="1" fill="#6a3810"/>
+  `),
+  'obj_stove': svg(`
+    <rect x="4" y="8" width="20" height="14" rx="2" fill="#553322"/>
+    <rect x="4" y="8" width="20" height="5" rx="2" fill="#775533"/>
+    <circle cx="10" cy="11" r="2.5" fill="#ff5500" opacity="0.85"/>
+    <circle cx="18" cy="11" r="2.5" fill="#ff5500" opacity="0.85"/>
+    <circle cx="10" cy="18" r="2" fill="#cc4400" opacity="0.7"/>
+    <circle cx="18" cy="18" r="2" fill="#cc4400" opacity="0.7"/>
+    <rect x="6" y="21" width="16" height="2" rx="1" fill="#443322"/>
+  `),
+  'obj_prep_counter': svg(`
+    <rect x="3" y="14" width="22" height="8" rx="2" fill="#8B6914"/>
+    <rect x="3" y="12" width="22" height="4" rx="1" fill="#c8a84b"/>
+    <rect x="5" y="14" width="18" height="2" rx="1" fill="#e0c060" opacity="0.5"/>
+    <rect x="5" y="17" width="4" height="5" rx="1" fill="#6a5010"/>
+    <rect x="19" y="17" width="4" height="5" rx="1" fill="#6a5010"/>
   `),
 };
 
@@ -518,16 +535,37 @@ class UIOverlay {
   }
 
   private renderKitchen(s: UIState): void {
+    const owned = new Set(s.ownedStations ?? ['coffee']);
     const hasMachines = (s.extraMachines ?? 0) >= 1;
-    const can = !hasMachines && s.money >= 180;
-    let html = this.itemCard({
+    let html = '';
+
+    const hasStove = owned.has('stove');
+    html += this.itemCard({
+      icon: ITEM_ICONS['obj_stove'],
+      name: 'Stove',
+      desc: 'Cook hot food like Lunar Pancakes & Fondue',
+      cost: 100, can: !hasStove && s.money >= 100, owned: hasStove,
+      attr: `data-buy-kitchen="stove"`, btnLabel: 'Buy',
+    });
+
+    const hasPrep = owned.has('prep');
+    html += this.itemCard({
+      icon: ITEM_ICONS['obj_prep_counter'],
+      name: 'Prep Counter',
+      desc: 'Prepare cold dishes like Stardust Cookies',
+      cost: 80, can: !hasPrep && s.money >= 80, owned: hasPrep,
+      attr: `data-buy-kitchen="prep"`, btnLabel: 'Buy',
+    });
+
+    const canMachines = !hasMachines && s.money >= 180;
+    html += this.itemCard({
       icon: ITEM_ICONS['obj_coffee_machine'],
       name: 'Extra Machines',
-      desc: '+1 of each station · parallel cooking',
-      cost: 180, can, owned: hasMachines,
+      desc: '+1 of each owned station · parallel cooking',
+      cost: 180, can: canMachines, owned: hasMachines,
       attr: `data-buy-kitchen="extra_machines"`, btnLabel: 'Buy',
     });
-    html += `<p class="sp-meta" style="margin-top:14px;color:#443322">More upgrades coming soon!</p>`;
+
     this.storeContentEl.innerHTML = html;
     this.attachListeners();
   }

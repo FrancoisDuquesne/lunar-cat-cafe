@@ -87,6 +87,7 @@ export class GameScene extends Phaser.Scene {
     placedDecorations: [],
     ownedTableSlotIds: [0, 1, 2],
     cooks: 0, guards: 0, caterers: 0,
+    ownedStations: ['coffee'],
   };
 
   private interactionPrompt?: Phaser.GameObjects.Container;
@@ -190,7 +191,9 @@ export class GameScene extends Phaser.Scene {
       cooks: 0, guards: 0, caterers: 0,
       ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
       dailyMenuIds: ['moon_mocha', 'zerog_latte'],
+      ownedStations: ['coffee'],
     };
+    if (!this.shopState.ownedStations) this.shopState.ownedStations = ['coffee', 'stove', 'prep'];
 
     this.buildMap();
     this.buildFurniture();
@@ -417,17 +420,20 @@ export class GameScene extends Phaser.Scene {
   private buildKitchenStations(): void {
     type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
 
-    const baseDefs: StationDef[] = [
+    const allBaseDefs: StationDef[] = [
       { col: 12, row: 7, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee' },
       { col: 15, row: 7, type: 'stove',  tex: 'obj_stove',          label: 'Stove'  },
       { col: 17, row: 7, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep'   },
     ];
-    const extraDefs: StationDef[] = [
+    const allExtraDefs: StationDef[] = [
       { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
       { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
       { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
     ];
 
+    const owned = new Set(this.shopState.ownedStations ?? ['coffee']);
+    const baseDefs = allBaseDefs.filter(d => owned.has(d.type));
+    const extraDefs = allExtraDefs.filter(d => owned.has(d.type));
     const defs = this.shopState.extraMachines >= 1 ? [...baseDefs, ...extraDefs] : baseDefs;
 
     defs.forEach((def, i) => {
@@ -458,11 +464,13 @@ export class GameScene extends Phaser.Scene {
 
   private addExtraKitchenStations(): void {
     type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
-    const extraDefs: StationDef[] = [
+    const allExtraDefs: StationDef[] = [
       { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
       { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
       { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
     ];
+    const owned = new Set(this.shopState.ownedStations ?? ['coffee']);
+    const extraDefs = allExtraDefs.filter(d => owned.has(d.type));
     const startId = this.stations.length;
     extraDefs.forEach((def, i) => {
       const wx = def.col * TILE + TILE / 2;
@@ -478,6 +486,40 @@ export class GameScene extends Phaser.Scene {
         cookTargetMs: 0, currentOrderId: null,
       });
     });
+  }
+
+  private addBoughtStation(type: 'stove' | 'prep'): void {
+    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
+    const defs: Record<string, StationDef> = {
+      stove: { col: 15, row: 7, type: 'stove', tex: 'obj_stove',        label: 'Stove' },
+      prep:  { col: 17, row: 7, type: 'prep',  tex: 'obj_prep_counter', label: 'Prep'  },
+    };
+    const def = defs[type];
+    const wx = def.col * TILE + TILE / 2;
+    const wy = def.row * TILE + TILE / 2;
+    const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
+    const label = this.add.text(wx, wy - 20, def.label, {
+      fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 1).setDepth(5);
+    const id = this.stations.length;
+    this.stations.push({ id, type: def.type, worldX: wx, worldY: wy, sprite, label, isCooking: false, cookProgress: 0, cookTargetMs: 0, currentOrderId: null });
+    if (this.shopState.extraMachines >= 1) {
+      const extraDefs: Record<string, StationDef> = {
+        stove: { col: 15, row: 8, type: 'stove', tex: 'obj_stove',        label: 'Stove 2' },
+        prep:  { col: 17, row: 8, type: 'prep',  tex: 'obj_prep_counter', label: 'Prep 2'  },
+      };
+      const eDef = extraDefs[type];
+      const ex = eDef.col * TILE + TILE / 2;
+      const ey = eDef.row * TILE + TILE / 2;
+      const eSprite = this.add.sprite(ex, ey - 4, eDef.tex).setDepth(4).setOrigin(0.5, 0.7);
+      const eLabel = this.add.text(ex, ey - 20, eDef.label, {
+        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1).setDepth(5);
+      const eid = this.stations.length;
+      this.stations.push({ id: eid, type: eDef.type, worldX: ex, worldY: ey, sprite: eSprite, label: eLabel, isCooking: false, cookProgress: 0, cookTargetMs: 0, currentOrderId: null });
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1026,7 +1068,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBuyKitchen(upgradeId: string): void {
-    if (upgradeId === 'extra_machines') {
+    const stationCosts: Record<string, number> = { stove: 100, prep: 80 };
+    if (upgradeId === 'stove' || upgradeId === 'prep') {
+      const owned = this.shopState.ownedStations ?? ['coffee'];
+      if (owned.includes(upgradeId)) return;
+      const cost = stationCosts[upgradeId];
+      if (this.money < cost) {
+        this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+        return;
+      }
+      this.money -= cost;
+      this.shopState.ownedStations = [...owned, upgradeId];
+      this.addBoughtStation(upgradeId);
+      const names: Record<string, string> = { stove: 'Stove installed!', prep: 'Prep counter installed!' };
+      this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, names[upgradeId], '#AAFFAA');
+      this.playChime();
+      this.saveCurrentState();
+      this.emitUIUpdate();
+    } else if (upgradeId === 'extra_machines') {
       if (this.shopState.extraMachines >= 1) return;
       if (this.money < 180) {
         this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
@@ -2264,6 +2323,7 @@ export class GameScene extends Phaser.Scene {
       guards: this.shopState.guards ?? 0,
       caterers: this.shopState.caterers ?? 0,
       extraMachines: this.shopState.extraMachines ?? 0,
+      ownedStations: [...(this.shopState.ownedStations ?? ['coffee'])],
       ownedRecipeIds: [...(this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
       dailyMenuIds: [...(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
     });

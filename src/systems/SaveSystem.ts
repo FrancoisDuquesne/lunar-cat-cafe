@@ -11,6 +11,7 @@ function freshShop(): ShopState {
     cooks: 0, guards: 0, caterers: 0,
     ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
     dailyMenuIds: ['moon_mocha', 'zerog_latte'],
+    ownedStations: ['coffee'],
   };
 }
 
@@ -57,6 +58,7 @@ export function loadGame(): GameSaveState | null {
     if (!state.shop.ownedRecipeIds) state.shop.ownedRecipeIds = ['moon_mocha', 'zerog_latte'];
     if (!state.shop.dailyMenuIds) state.shop.dailyMenuIds = [...state.shop.ownedRecipeIds];
     if (state.shop.bookings === undefined) state.shop.bookings = 0;
+    if (!state.shop.ownedStations) state.shop.ownedStations = ['coffee', 'stove', 'prep'];
     if (!state.popularityHistory) state.popularityHistory = [];
     return state;
   } catch (e) {
