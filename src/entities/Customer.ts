@@ -202,6 +202,7 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
 
   private updatePatienceBar(): void {
     if (!this.patienceBar) return;
+    this.patienceBar.setPosition(this.x - 24, this.y - 34);
     this.patienceBar.clear();
 
     // Background

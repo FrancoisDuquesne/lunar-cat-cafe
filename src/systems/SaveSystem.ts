@@ -16,7 +16,7 @@ function freshShop(): ShopState {
 
 export function defaultSaveState(): GameSaveState {
   return {
-    money: 150,
+    money: 200,
     reputation: 10,
     day: 1,
     totalServed: 0,

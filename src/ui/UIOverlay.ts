@@ -544,9 +544,12 @@ class UIOverlay {
         icon: ROLE_ICONS[emp.role],
         name: emp.name,
         desc: `${emp.desc} · ${current}/${emp.max} hired`,
-        cost: emp.cost, can, owned: maxed,
+        cost: emp.cost,
+        can: can && !maxed,
+        owned: false,
+        disabled: maxed,
         attr: `data-hire-staff="${emp.role}"`,
-        btnLabel: maxed ? 'Maxed' : 'Hire',
+        btnLabel: maxed ? 'Full' : 'Hire',
       });
     });
 
@@ -555,7 +558,7 @@ class UIOverlay {
       const next = locked.reduce((a, b) => (a.minTier ?? 99) < (b.minTier ?? 99) ? a : b);
       const tierName = CAFE_TIERS.find(t => t.level === next.minTier)?.name ?? `Tier ${next.minTier}`;
       html += `<p class="sp-meta" style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
-        ${locked.length} more staff unlock as your café upgrades &mdash; next at <strong style="color:#88ddff">${tierName}</strong>.
+        ${locked.length} more staff unlock as your café upgrades &mdash; next at <strong>${tierName}</strong>.
       </p>`;
     }
 
@@ -592,7 +595,7 @@ class UIOverlay {
               <div class="si-desc">${STATION_LABELS[item.station] ?? item.station} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
             </div>
             <div class="si-right">
-              <button class="si-btn${canRemove ? '' : ' disabled'}"${canRemove ? '' : ' disabled'} data-toggle-recipe="${item.id}" style="font-size:0.85em">Remove</button>
+              <button class="si-btn${canRemove ? '' : ' disabled'}"${canRemove ? '' : ' disabled'}${canRemove ? '' : ' title="Need at least one item on the menu"'} data-toggle-recipe="${item.id}" style="font-size:0.85em">Remove</button>
             </div>
           </div>`;
       });
@@ -658,12 +661,13 @@ class UIOverlay {
   private itemCard(o: {
     icon: string; name: string; desc: string;
     cost: number; can: boolean; owned: boolean;
-    attr: string; btnLabel: string;
+    attr: string; btnLabel: string; disabled?: boolean;
   }): string {
     const cls = o.owned ? 'owned' : o.can ? 'afford' : '';
     const costCls = o.can || o.owned ? '' : ' dim';
     const btnCls = o.owned ? ' owned-lbl' : '';
-    const disabled = (!o.can && !o.owned) ? ' disabled' : '';
+    const isDisabled = o.disabled || (!o.can && !o.owned);
+    const disabledAttr = isDisabled ? ' disabled' : '';
     return `
       <div class="si ${cls}">
         <div class="si-icon">${o.icon}</div>
@@ -673,7 +677,7 @@ class UIOverlay {
         </div>
         <div class="si-right">
           <span class="si-cost${costCls}">${o.cost} ✦</span>
-          <button class="si-btn${btnCls}"${disabled} ${o.attr}>${o.owned ? '&#10003; Owned' : o.btnLabel}</button>
+          <button class="si-btn${btnCls}"${disabledAttr} ${o.attr}>${o.owned ? '&#10003; Owned' : o.btnLabel}</button>
         </div>
       </div>`;
   }
@@ -785,7 +789,12 @@ class UIOverlay {
       }
     };
 
-    this.ordersEl.innerHTML = orders.slice(0, 5).map(o => {
+    const MAX_VISIBLE = 4;
+    const overflow = orders.length - MAX_VISIBLE;
+    const overflowTag = overflow > 0
+      ? `<div class="order-ticket" style="justify-content:center;align-items:center;opacity:0.65;font-size:calc(9px * var(--gs));padding:0 4px">+${overflow} more</div>`
+      : '';
+    this.ordersEl.innerHTML = orders.slice(0, MAX_VISIBLE).map(o => {
       const si = statusInfo(o.status);
       const prog = o.status === 'cooking'
         ? `<div class="ot-prog"><div class="ot-prog-fill" style="width:${o.progress * 100}%"></div></div>`
@@ -803,7 +812,7 @@ class UIOverlay {
           </div>
           <div class="ot-fringe"></div>
         </div>`;
-    }).join('');
+    }).join('') + overflowTag;
   }
 }
 

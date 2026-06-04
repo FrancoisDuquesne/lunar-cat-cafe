@@ -78,8 +78,8 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
       case 'idle': {
         if (this.wanderTimer <= 0) {
           this.wanderTimer = Phaser.Math.Between(2000, 5000);
-          this.wanderX = Phaser.Math.Between(3 * 32, 21 * 32);
-          this.wanderY = Phaser.Math.Between(9 * 32, 13 * 32);
+          this.wanderX = Phaser.Math.Between(2 * 32, 27 * 32);
+          this.wanderY = Phaser.Math.Between(10 * 32, 14 * 32);
         }
         const wx = this.wanderX - this.x;
         const wy = this.wanderY - this.y;

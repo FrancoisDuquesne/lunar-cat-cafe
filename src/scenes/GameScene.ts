@@ -71,6 +71,7 @@ export class GameScene extends Phaser.Scene {
   private tables: TableSlot[] = [];
   private employees: Employee[] = [];
   private employeeAssignedIds = new Set<number>();
+  private cookNpcs: Array<{ sprite: Phaser.GameObjects.Sprite; badge: Phaser.GameObjects.Text }> = [];
 
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private furnitureGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -145,6 +146,7 @@ export class GameScene extends Phaser.Scene {
     this.cats = [];
     this.employees = [];
     this.employeeAssignedIds = new Set();
+    this.cookNpcs = [];
     this.shopRefreshFns = [];
     this.uiRefreshTimer = 0;
     this.autoCookTimer = 0;
@@ -209,6 +211,7 @@ export class GameScene extends Phaser.Scene {
 
     this.spawnCats(saved.cats);
     this.spawnEmployees();
+    this.spawnCooks();
     this.setupSteam();
     this.setupSpaceAmbience();
 
@@ -1012,6 +1015,8 @@ export class GameScene extends Phaser.Scene {
 
     if (role === 'waiter') {
       this.spawnOneEmployee(this.shopState.employees - 1);
+    } else if (role === 'cook') {
+      this.spawnOneCook(this.shopState.cooks - 1);
     }
 
     this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} hired!`, '#60FF88');
@@ -1152,6 +1157,8 @@ export class GameScene extends Phaser.Scene {
       stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
       stn.sprite.clearTint();
       this.playCook();
+      // Start the next pending order immediately instead of waiting for the timer
+      this.autoCookTimer = 0;
       return itemId;
     };
 
@@ -1175,6 +1182,39 @@ export class GameScene extends Phaser.Scene {
     this.employees.push(emp);
   }
 
+  private spawnCooks(): void {
+    for (let i = 0; i < (this.shopState.cooks ?? 0); i++) {
+      this.spawnOneCook(i);
+    }
+  }
+
+  private spawnOneCook(index: number): void {
+    const positions = [
+      { col: 7,  row: 5 },
+      { col: 18, row: 5 },
+    ];
+    const pos = positions[index % positions.length];
+    const wx = pos.col * TILE + TILE / 2;
+    const wy = pos.row * TILE + TILE / 2;
+
+    const sprite = this.add.sprite(wx, wy, 'player_employee')
+      .setDepth(10 + wy / 1000)
+      .setTint(0xFFBB66);
+
+    const badge = this.add.text(wx, wy - 24, EMPLOYEE_NAMES[(this.employees.length + index) % EMPLOYEE_NAMES.length], {
+      fontSize: '8px', color: '#FFCC88', fontFamily: 'monospace',
+      stroke: '#442200', strokeThickness: 2,
+    }).setOrigin(0.5, 1).setDepth(11);
+
+    // gentle idle bob
+    this.tweens.add({
+      targets: sprite, y: wy - 3,
+      duration: 900 + index * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+
+    this.cookNpcs.push({ sprite, badge });
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // AUTO-COOK (Cook employees)
   // ─────────────────────────────────────────────────────────────────────
@@ -1190,6 +1230,13 @@ export class GameScene extends Phaser.Scene {
         stn.currentOrderId = pending.customerId;
         this.startCookingVisual(stn);
         this.playCook();
+        // Animate the nearest cook NPC
+        const cookIdx = Math.min(this.cookNpcs.length - 1, 0);
+        if (cookIdx >= 0) {
+          const npc = this.cookNpcs[cookIdx];
+          this.tweens.add({ targets: npc.sprite, scaleX: 1.3, scaleY: 1.3, duration: 120, yoyo: true, repeat: 2 });
+        }
+        this.emitUIUpdate();
         return;
       }
     }

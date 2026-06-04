@@ -144,7 +144,7 @@ export interface EmployeeTypeDef {
 
 export const EMPLOYEE_TYPES: EmployeeTypeDef[] = [
   { role: 'waiter',  name: 'Waiter',         cost: 150, max: 3, desc: 'Takes orders for you',       badgeColor: 0x60CC80, badgeHex: '#60CC80' },
-  { role: 'cook',    name: 'Cook',            cost: 250, max: 2, desc: 'Auto-starts cooking orders', badgeColor: 0xFF9944, badgeHex: '#FF9944' },
+  { role: 'cook',    name: 'Cook',            cost: 250, max: 2, desc: 'Kitchen NPC — auto-starts cooking so you focus on orders', badgeColor: 0xFF9944, badgeHex: '#FF9944' },
   { role: 'guard',   name: 'Security Guard', cost: 200, max: 1, desc: '+5 reputation per day',       badgeColor: 0x6688DD, badgeHex: '#6688DD', minTier: 2 },
   { role: 'caterer', name: 'Wine Caterer',   cost: 300, max: 1, desc: '+25% tip bonus',              badgeColor: 0xDD88CC, badgeHex: '#DD88CC', minTier: 3 },
 ];
