@@ -71,7 +71,13 @@ export class GameScene extends Phaser.Scene {
   private tables: TableSlot[] = [];
   private employees: Employee[] = [];
   private employeeAssignedIds = new Set<number>();
-  private cookNpcs: Array<{ sprite: Phaser.GameObjects.Sprite; badge: Phaser.GameObjects.Text }> = [];
+  private cookNpcs: Array<{
+    sprite: Phaser.GameObjects.Sprite;
+    badge: Phaser.GameObjects.Text;
+    homeX: number; homeY: number;
+    bobTween: Phaser.Tweens.Tween | null;
+    assignedStationId: number | null;
+  }> = [];
 
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private furnitureGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -1266,18 +1272,51 @@ export class GameScene extends Phaser.Scene {
       stroke: '#442200', strokeThickness: 2,
     }).setOrigin(0.5, 1).setDepth(11);
 
-    // gentle idle bob
-    this.tweens.add({
+    const bobTween = this.tweens.add({
       targets: sprite, y: wy - 3,
       duration: 900 + index * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
 
-    this.cookNpcs.push({ sprite, badge });
+    this.cookNpcs.push({ sprite, badge, homeX: wx, homeY: wy, bobTween, assignedStationId: null });
   }
 
   // ─────────────────────────────────────────────────────────────────────
   // AUTO-COOK (Cook employees)
   // ─────────────────────────────────────────────────────────────────────
+
+  private moveCookToStation(npc: typeof this.cookNpcs[0], stn: Station): void {
+    npc.bobTween?.stop();
+    npc.assignedStationId = stn.id;
+    const tx = stn.worldX;
+    const ty = stn.worldY + 4;
+    this.tweens.add({
+      targets: npc.sprite, x: tx, y: ty,
+      duration: 600, ease: 'Quad.easeInOut',
+      onComplete: () => {
+        npc.bobTween = this.tweens.add({
+          targets: npc.sprite, y: ty - 3,
+          duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+      },
+    });
+  }
+
+  private moveCookHome(npc: typeof this.cookNpcs[0]): void {
+    npc.bobTween?.stop();
+    npc.assignedStationId = null;
+    const tx = npc.homeX;
+    const ty = npc.homeY;
+    this.tweens.add({
+      targets: npc.sprite, x: tx, y: ty,
+      duration: 500, ease: 'Quad.easeOut',
+      onComplete: () => {
+        npc.bobTween = this.tweens.add({
+          targets: npc.sprite, y: ty - 3,
+          duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+      },
+    });
+  }
 
   private tryAutoCook(): void {
     for (const stn of this.stations) {
@@ -1290,12 +1329,10 @@ export class GameScene extends Phaser.Scene {
         stn.currentOrderId = pending.customerId;
         this.startCookingVisual(stn);
         this.playCook();
-        // Animate the nearest cook NPC
-        const cookIdx = Math.min(this.cookNpcs.length - 1, 0);
-        if (cookIdx >= 0) {
-          const npc = this.cookNpcs[cookIdx];
-          this.tweens.add({ targets: npc.sprite, scaleX: 1.3, scaleY: 1.3, duration: 120, yoyo: true, repeat: 2 });
-        }
+        // Move an available cook NPC to the station
+        const npc = this.cookNpcs.find(c => c.assignedStationId === null)
+                 ?? this.cookNpcs[0];
+        if (npc) this.moveCookToStation(npc, stn);
         this.emitUIUpdate();
         return;
       }
@@ -2457,9 +2494,17 @@ export class GameScene extends Phaser.Scene {
           stn.sprite.setTint(0x88FF88);
           this.tweens.add({ targets: stn.sprite, alpha: 0.4, duration: 120, yoyo: true, repeat: 2 });
           this.playChime();
+          // Send the assigned cook back home
+          const npc = this.cookNpcs.find(c => c.assignedStationId === stn.id);
+          if (npc) this.moveCookHome(npc);
         }
       }
     });
+
+    // Keep cook NPC name badges above their sprites
+    for (const npc of this.cookNpcs) {
+      npc.badge.setPosition(npc.sprite.x, npc.sprite.y - 24);
+    }
 
     const ctx = this.scanInteractables();
     this.currentInteraction = ctx;
