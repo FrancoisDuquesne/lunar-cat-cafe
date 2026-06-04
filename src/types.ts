@@ -6,6 +6,8 @@ export interface MenuItemDef {
   price: number;
   prepTime: number;
   station: 'coffee' | 'stove' | 'prep';
+  recipeCost?: number;
+  description?: string;
 }
 
 export type CustomerType = 'astronaut' | 'scientist' | 'tourist' | 'worker';
@@ -56,6 +58,9 @@ export interface ShopState {
   cooks: number;
   guards: number;
   caterers: number;
+  ownedRecipeIds?: string[];
+  dailyMenuIds?: string[];
+  bookings?: number;
 }
 
 export interface OrderInfo {
@@ -74,6 +79,7 @@ export interface GameSaveState {
   totalServed: number;
   cats: CatState[];
   shop: ShopState;
+  popularityHistory?: Array<{ day: number; served: number; revenue: number }>;
 }
 
 export interface InteractionContext {

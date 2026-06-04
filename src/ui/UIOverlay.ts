@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  EMPLOYEE_TYPES, DECORATION_ITEMS, CAFE_TIERS,
+  EMPLOYEE_TYPES, DECORATION_ITEMS, CAFE_TIERS, MENU_ITEMS,
   DecorationCategory, EmployeeRole,
 } from '../constants';
 import type { OrderInfo } from '../types';
@@ -24,9 +24,11 @@ export interface UIState {
   guards?: number;
   caterers?: number;
   extraMachines?: number;
+  ownedRecipeIds?: string[];
+  dailyMenuIds?: string[];
 }
 
-type StoreTab = 'furnish' | 'kitchen' | 'staff';
+type StoreTab = 'furnish' | 'kitchen' | 'staff' | 'menu';
 
 // ── SVG ICONS ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,14 @@ function svg(content: string, size = 28): string {
 }
 
 const ITEM_ICONS: Record<string, string> = {
+  // Bar stool
+  'obj_bar_stool': svg(`
+    <circle cx="14" cy="9" r="7" fill="#cc3344"/>
+    <ellipse cx="12" cy="7" rx="5" ry="3" fill="#ff5566" opacity="0.7"/>
+    <rect x="13" y="15" width="2" height="8" rx="1" fill="#c8b860"/>
+    <rect x="9" y="22" width="10" height="3" rx="1.5" fill="#9a9030"/>
+    <rect x="10" y="22" width="8" height="2" rx="1" fill="#c8b860" opacity="0.7"/>
+  `),
   // Seating
   'obj_table': svg(`
     <rect x="5" y="11" width="18" height="3" rx="1.5" fill="#9a6030"/>
@@ -184,6 +194,70 @@ const ROLE_ICONS: Record<EmployeeRole, string> = {
     <path d="M9 18 Q9 13 14 12 Q19 13 19 18" fill="#bb66aa"/>
     <ellipse cx="14" cy="16" rx="4.5" ry="2" fill="#ffffff" opacity="0.5"/>
   `),
+};
+
+const FOOD_ICONS: Record<string, string> = {
+  moon_mocha: svg(`
+    <rect x="4" y="8" width="14" height="12" rx="2" fill="#3a1a00"/>
+    <rect x="5" y="9" width="12" height="4" fill="#7a3a10"/>
+    <rect x="5" y="9" width="12" height="2" fill="#aa5520" opacity="0.7"/>
+    <rect x="16" y="11" width="4" height="4" rx="1" fill="#5a2808"/>
+    <rect x="4" y="18" width="14" height="2" rx="1" fill="#d4a820" opacity="0.8"/>
+  `, 24),
+  zerog_latte: svg(`
+    <rect x="5" y="5" width="14" height="16" rx="4" fill="#0a2a30"/>
+    <rect x="5" y="5" width="14" height="5" fill="#00bbcc"/>
+    <rect x="5" y="5" width="14" height="2" fill="#44eeff" opacity="0.7"/>
+    <ellipse cx="12" cy="9" rx="6" ry="3" fill="#00ccdd" opacity="0.4"/>
+  `, 24),
+  luna_pancakes: svg(`
+    <ellipse cx="12" cy="19" rx="10" ry="3" fill="#c47828"/>
+    <ellipse cx="12" cy="15" rx="10" ry="3" fill="#d48838"/>
+    <ellipse cx="12" cy="11" rx="10" ry="3" fill="#e4a848"/>
+    <rect x="10" y="7" width="5" height="3" fill="#ffee88"/>
+    <rect x="13" y="7" width="2" height="5" fill="#cc7700"/>
+  `, 24),
+  star_cookies: svg(`
+    <ellipse cx="12" cy="21" rx="10" ry="3" fill="#2a1a08"/>
+    <circle cx="7" cy="13" r="4" fill="#cc9944"/>
+    <circle cx="13" cy="10" r="4" fill="#cc9944"/>
+    <circle cx="18" cy="14" r="4" fill="#cc9944"/>
+    <circle cx="7" cy="13" r="2" fill="#aa7722"/>
+    <line x1="7" y1="11" x2="7" y2="15" stroke="#ffdd44" stroke-width="1"/>
+    <line x1="5" y1="13" x2="9" y2="13" stroke="#ffdd44" stroke-width="1"/>
+  `, 24),
+  lunar_fondue: svg(`
+    <rect x="4" y="10" width="16" height="11" rx="2" fill="#5a3000"/>
+    <ellipse cx="12" cy="12" rx="8" ry="4" fill="#f0c020"/>
+    <ellipse cx="10" cy="11" rx="4" ry="2" fill="#ffe060" opacity="0.9"/>
+    <rect x="5" y="14" width="2" height="4" fill="#d4a010"/>
+    <rect x="17" y="14" width="2" height="4" fill="#d4a010"/>
+    <rect x="1" y="14" width="4" height="3" fill="#d4a820"/>
+    <rect x="19" y="14" width="4" height="3" fill="#d4a820"/>
+  `, 24),
+  nebula_risotto: svg(`
+    <ellipse cx="12" cy="22" rx="11" ry="4" fill="#1a0830"/>
+    <ellipse cx="12" cy="17" rx="9" ry="6" fill="#7030cc"/>
+    <ellipse cx="12" cy="15" rx="6" ry="4" fill="#aa50e0" opacity="0.9"/>
+    <ellipse cx="10" cy="14" rx="4" ry="2" fill="#ff88ff" opacity="0.7"/>
+    <line x1="12" y1="4" x2="12" y2="10" stroke="#ffdd00" stroke-width="1"/>
+    <line x1="9" y1="7" x2="15" y2="7" stroke="#ffdd00" stroke-width="1"/>
+  `, 24),
+  gravity_souffle: svg(`
+    <rect x="5" y="17" width="14" height="6" rx="1" fill="#4a2e08"/>
+    <rect x="4" y="16" width="16" height="2" fill="#d4a820"/>
+    <ellipse cx="12" cy="14" rx="10" ry="7" fill="#e8a820"/>
+    <ellipse cx="12" cy="11" rx="7" ry="5" fill="#ffcc44"/>
+    <ellipse cx="11" cy="9" rx="4" ry="3" fill="#ffee88" opacity="0.9"/>
+    <line x1="12" y1="2" x2="12" y2="6" stroke="#ffffcc" stroke-width="1"/>
+    <line x1="9" y1="4" x2="15" y2="4" stroke="#ffffcc" stroke-width="1"/>
+  `, 24),
+};
+
+const STATION_LABELS: Record<string, string> = {
+  coffee: 'Coffee Machine',
+  stove: 'Stove',
+  prep: 'Prep Counter',
 };
 
 function categoryFallbackIcon(category: DecorationCategory): string {
@@ -363,6 +437,7 @@ class UIOverlay {
       case 'furnish': this.renderFurnish(s); break;
       case 'kitchen': this.renderKitchen(s); break;
       case 'staff':   this.renderStaff(s);   break;
+      case 'menu':    this.renderMenu(s);     break;
     }
   }
 
@@ -488,6 +563,98 @@ class UIOverlay {
     this.attachListeners();
   }
 
+  private renderMenu(s: UIState): void {
+    const tier = s.tierLevel ?? 1;
+    const tierDef = CAFE_TIERS.find(t => t.level === tier)!;
+    const tierUnlocked = new Set<string>(tierDef?.unlockedMenuIds ?? []);
+    const owned = new Set<string>(s.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
+    const daily = new Set<string>(s.dailyMenuIds ?? owned);
+    const money = s.money ?? 0;
+
+    type RichItem = { id: string; name: string; price: number; prepTime: number; station: string; recipeCost: number; description?: string };
+    const allItems = MENU_ITEMS as unknown as RichItem[];
+
+    let html = '';
+
+    // ── On today's menu ──────────────────────────────────────────
+    const onMenu = allItems.filter(i => daily.has(i.id));
+    if (onMenu.length > 0) {
+      html += `<p class="sp-meta" style="margin-bottom:6px">Serving today &mdash; toggle to remove from today&apos;s menu.</p>`;
+      onMenu.forEach(item => {
+        const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
+        const prepSec = Math.round(item.prepTime / 1000);
+        const canRemove = onMenu.length > 1;
+        html += `
+          <div class="si afford">
+            <div class="si-icon">${icon}</div>
+            <div class="si-info">
+              <div class="si-name">${item.name} <span style="font-size:0.75em;color:#44bb66;font-weight:400">● Serving</span></div>
+              <div class="si-desc">${STATION_LABELS[item.station] ?? item.station} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
+            </div>
+            <div class="si-right">
+              <button class="si-btn${canRemove ? '' : ' disabled'}"${canRemove ? '' : ' disabled'} data-toggle-recipe="${item.id}" style="font-size:0.85em">Remove</button>
+            </div>
+          </div>`;
+      });
+    }
+
+    // ── Owned but off menu ────────────────────────────────────────
+    const offMenu = allItems.filter(i => owned.has(i.id) && !daily.has(i.id));
+    if (offMenu.length > 0) {
+      html += `<p class="sp-meta" style="margin-top:12px;margin-bottom:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
+        Your recipes &mdash; not on today&apos;s menu.</p>`;
+      offMenu.forEach(item => {
+        const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
+        const prepSec = Math.round(item.prepTime / 1000);
+        html += `
+          <div class="si">
+            <div class="si-icon" style="opacity:0.55">${icon}</div>
+            <div class="si-info">
+              <div class="si-name" style="opacity:0.75">${item.name}</div>
+              <div class="si-desc">${STATION_LABELS[item.station] ?? item.station} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
+            </div>
+            <div class="si-right">
+              <button class="si-btn" data-toggle-recipe="${item.id}" style="font-size:0.85em">Add today</button>
+            </div>
+          </div>`;
+      });
+    }
+
+    // ── Buyable (tier-unlocked, not yet owned) ────────────────────
+    const buyable = allItems.filter(i => tierUnlocked.has(i.id) && !owned.has(i.id));
+    if (buyable.length > 0) {
+      html += `<p class="sp-meta" style="margin-top:12px;margin-bottom:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
+        Available to learn.</p>`;
+      buyable.forEach(item => {
+        const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
+        const cost = item.recipeCost;
+        const canAfford = money >= cost;
+        html += `
+          <div class="si ${canAfford ? '' : ''}">
+            <div class="si-icon" style="opacity:0.6">${icon}</div>
+            <div class="si-info">
+              <div class="si-name" style="opacity:0.8">${item.name}</div>
+              <div class="si-desc">${item.description ?? ''}</div>
+            </div>
+            <div class="si-right">
+              <span class="si-cost${canAfford ? '' : ' dim'}">${cost} ✦</span>
+              <button class="si-btn${canAfford ? '' : ' disabled'}"${canAfford ? '' : ' disabled'} data-buy-recipe="${item.id}">Learn</button>
+            </div>
+          </div>`;
+      });
+    }
+
+    // ── Tier-locked ───────────────────────────────────────────────
+    const tierLocked = allItems.filter(i => !tierUnlocked.has(i.id));
+    if (tierLocked.length > 0) {
+      html += `<p class="sp-meta" style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
+        ${tierLocked.length} more recipe${tierLocked.length > 1 ? 's' : ''} unlock as your café upgrades.</p>`;
+    }
+
+    this.storeContentEl.innerHTML = html;
+    this.attachListeners();
+  }
+
   private itemCard(o: {
     icon: string; name: string; desc: string;
     cost: number; can: boolean; owned: boolean;
@@ -529,6 +696,16 @@ class UIOverlay {
         setTimeout(() => {
           this.game?.events.emit('game_event', { type: 'start_placement', defId });
         }, 0);
+      });
+    });
+    this.storeContentEl.querySelectorAll<HTMLElement>('[data-buy-recipe]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.game?.events.emit('game_event', { type: 'buy_recipe', itemId: btn.dataset.buyRecipe });
+      });
+    });
+    this.storeContentEl.querySelectorAll<HTMLElement>('[data-toggle-recipe]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.game?.events.emit('game_event', { type: 'toggle_daily_recipe', itemId: btn.dataset.toggleRecipe });
       });
     });
   }

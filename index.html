@@ -118,8 +118,16 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: calc(3px * var(--gs));
+      justify-content: center;
+      gap: calc(4px * var(--gs));
       min-width: 0;
+    }
+
+    .hud-center-top {
+      display: flex;
+      align-items: center;
+      gap: calc(7px * var(--gs));
+      white-space: nowrap;
     }
 
     #day-label {
@@ -182,8 +190,7 @@
     #orders-strip {
       position: fixed;
       top: calc(62px * var(--gs));
-      left: 50%;
-      transform: translateX(-50%);
+      left: calc(8px * var(--gs));
       display: flex;
       gap: calc(5px * var(--gs));
       pointer-events: none;
@@ -843,10 +850,12 @@
         <span id="ambiance-val">✦ 0 ambiance</span>
       </div>
       <div class="hud-center">
-        <span id="day-label">Day 1</span>
+        <div class="hud-center-top">
+          <span id="day-label">Day 1</span>
+          <span id="phase-text">Morning</span>
+          <span id="time-remaining" style="font-size:calc(10px * var(--gs));font-weight:600;letter-spacing:0.05em;color:#ffaa44;">5:00</span>
+        </div>
         <div id="day-bar-track"><div id="day-bar-fill"></div></div>
-        <span id="phase-text">Morning</span>
-        <span id="time-remaining" style="font-size:calc(10px * var(--gs));opacity:0.85;font-weight:600;letter-spacing:0.05em;color:#ffaa44;">5:00</span>
       </div>
       <div class="hud-right">
         <!-- store (shopping bag) -->
@@ -888,6 +897,7 @@
         <div class="sp-tab active" data-tab="furnish">Furnish</div>
         <div class="sp-tab" data-tab="kitchen">Kitchen</div>
         <div class="sp-tab" data-tab="staff">Staff</div>
+        <div class="sp-tab" data-tab="menu">Menu</div>
       </div>
       <div class="sp-content" id="store-content"></div>
     </div>

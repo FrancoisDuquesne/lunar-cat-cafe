@@ -9,6 +9,8 @@ function freshShop(): ShopState {
     placedDecorations: [],
     ownedTableSlotIds: [0, 1, 2],
     cooks: 0, guards: 0, caterers: 0,
+    ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
+    dailyMenuIds: ['moon_mocha', 'zerog_latte'],
   };
 }
 
@@ -52,6 +54,10 @@ export function loadGame(): GameSaveState | null {
     if (state.shop.cooks === undefined) state.shop.cooks = 0;
     if (state.shop.guards === undefined) state.shop.guards = 0;
     if (state.shop.caterers === undefined) state.shop.caterers = 0;
+    if (!state.shop.ownedRecipeIds) state.shop.ownedRecipeIds = ['moon_mocha', 'zerog_latte'];
+    if (!state.shop.dailyMenuIds) state.shop.dailyMenuIds = [...state.shop.ownedRecipeIds];
+    if (state.shop.bookings === undefined) state.shop.bookings = 0;
+    if (!state.popularityHistory) state.popularityHistory = [];
     return state;
   } catch (e) {
     console.warn('Load failed:', e);

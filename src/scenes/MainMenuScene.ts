@@ -23,10 +23,25 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private startGame(fresh: boolean): void {
-    if (fresh) clearSave();
-    this.scene.start('GameScene');
-    this.scene.start('UIScene');
-    this.scene.bringToTop('UIScene');
+    if (fresh) {
+      clearSave();
+      // Discard any sleeping in-progress game
+      if (this.scene.isSleeping('GameScene')) this.scene.stop('GameScene');
+      this.scene.start('GameScene');
+      this.scene.start('UIScene');
+      this.scene.bringToTop('UIScene');
+    } else if (this.scene.isSleeping('GameScene')) {
+      // Resume the paused in-progress session — no restart, no data loss
+      this.scene.wake('GameScene');
+      this.scene.launch('UIScene');          // restart UIScene to show HUD
+      this.scene.bringToTop('UIScene');
+      this.scene.stop();                     // close the menu
+    } else {
+      // No in-progress session — load from save as usual
+      this.scene.start('GameScene');
+      this.scene.start('UIScene');
+      this.scene.bringToTop('UIScene');
+    }
   }
 
   // ── Background (kept in Phaser canvas) ──────────────────────────

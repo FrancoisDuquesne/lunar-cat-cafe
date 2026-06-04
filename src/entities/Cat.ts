@@ -75,13 +75,13 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
     this.stateTimer -= delta;
     this.sleepZTimer -= delta;
 
-    // Passive stat decay
-    this.hunger = Math.max(0, this.hunger - delta * 0.004);
-    this.energy = Math.max(0, Math.min(100, this.energy + (this.aiState === 'sleeping' ? delta * 0.03 : -delta * 0.008)));
+    // Passive stat decay — slow enough to last most of a 5-minute day
+    this.hunger = Math.max(0, this.hunger - delta * 0.00025);
+    this.energy = Math.max(0, Math.min(100, this.energy + (this.aiState === 'sleeping' ? delta * 0.02 : -delta * 0.005)));
 
-    // Low hunger → sadder
+    // Low hunger → sadder (gradual, not instant)
     if (this.hunger < 20) {
-      this.happiness = Math.max(0, this.happiness - delta * 0.005);
+      this.happiness = Math.max(0, this.happiness - delta * 0.0003);
     }
 
     switch (this.aiState) {

@@ -444,6 +444,37 @@ export function createLunarRoverTexture(scene: Phaser.Scene): void {
   gen(scene, g, 'obj_lunar_rover', W, H);
 }
 
+export function createBarStoolTexture(scene: Phaser.Scene): void {
+  const g = makeGraphics(scene);
+  const W = 20, H = 28;
+  // Red velvet cushion seat
+  g.fillStyle(0xCC3344, 1); g.fillCircle(10, 8, 8);
+  g.fillStyle(0xFF6677, 1); g.fillEllipse(8, 6, 8, 5);
+  ol(g, 2); g.strokeCircle(10, 8, 8);
+  // Chrome stem
+  g.fillStyle(0xC8B860, 1); g.fillRect(8, 15, 4, 8);
+  g.fillStyle(0xEED880, 1); g.fillRect(9, 15, 2, 8);
+  // Base ring
+  g.fillStyle(0x9A9030, 1); g.fillRect(4, 22, 12, 4);
+  g.fillStyle(0xC8B860, 1); g.fillRect(5, 22, 10, 2);
+  ol(g, 1); g.strokeRect(4, 22, 12, 4);
+  gen(scene, g, 'obj_bar_stool', W, H);
+}
+
+export function createQueuePoleTexture(scene: Phaser.Scene): void {
+  const g = makeGraphics(scene);
+  const W = 10, H = 34;
+  // Base
+  g.fillStyle(0x9A8820, 1); g.fillRoundedRect(1, 28, 8, 5, 2);
+  // Gold pole
+  g.fillStyle(0xC8A828, 1); g.fillRect(3, 4, 4, 26);
+  g.fillStyle(0xEECC44, 1); g.fillRect(4, 4, 2, 26);
+  // Top knob
+  g.fillStyle(0xDDB830, 1); g.fillCircle(5, 4, 4);
+  g.fillStyle(0xFFE050, 1); g.fillCircle(4, 3, 2);
+  gen(scene, g, 'obj_queue_pole', W, H);
+}
+
 // ─────────────────────────────────────────────
 // FOOD ITEM TEXTURES
 // ─────────────────────────────────────────────
@@ -1169,6 +1200,8 @@ export function createAllTextures(scene: Phaser.Scene): void {
   createMoonRockTexture(scene);
   createMoonFlagTexture(scene);
   createLunarRoverTexture(scene);
+  createBarStoolTexture(scene);
+  createQueuePoleTexture(scene);
 
   createFoodTextures(scene);
   createPlayerTextures(scene);

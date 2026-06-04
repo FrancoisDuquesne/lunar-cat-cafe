@@ -31,6 +31,9 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
   private stateTimer = 0;
   private speechBubble?: Phaser.GameObjects.Container;
   private patienceBar?: Phaser.GameObjects.Graphics;
+  private angryEmote?: Phaser.GameObjects.Text;
+  private angryShakeTimer = 0;
+  private wasAngry = false;
   private exitX = 0;
   private exitY = 0;
   private waypoint: { x: number; y: number } | null = null;
@@ -96,7 +99,13 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
         break;
 
       case 'waiting_order':
-        // Waiting for player to take order – no timer, just show bubble
+        // Slow drain — customer leaves if ignored for ~90 seconds
+        this.patience = Math.max(0, this.patience - delta * 0.0011);
+        this.updatePatienceBar();
+        if (this.patience <= 0) {
+          this.happiness = 20;
+          this.beginLeave();
+        }
         break;
 
       case 'order_taken':
@@ -107,6 +116,7 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
       case 'waiting_food':
         this.patience = Math.max(0, this.patience - this.patienceDrainRate * delta);
         this.updatePatienceBar();
+        this.updateAngryShake(delta);
         if (this.patience <= 0) {
           // Lost patience – walk out unhappy
           this.happiness = 20;
@@ -204,6 +214,38 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
     this.patienceBar.fillRect(1, 1, Math.round((this.patience / 100) * 46), 4);
   }
 
+  private updateAngryShake(delta: number): void {
+    const critical = this.patience < 20;
+
+    if (critical && !this.wasAngry) {
+      // First time dropping below 20% — show angry emote
+      this.wasAngry = true;
+      if (!this.angryEmote) {
+        this.angryEmote = this.scene.add.text(this.x + 12, this.y - 52, '!!', {
+          fontSize: '11px', color: '#FF3333', fontFamily: 'monospace', fontStyle: 'bold',
+          stroke: '#000000', strokeThickness: 2,
+        }).setDepth(52).setOrigin(0.5);
+      }
+    }
+
+    if (critical) {
+      this.angryShakeTimer -= delta;
+      if (this.angryShakeTimer <= 0) {
+        this.angryShakeTimer = 300;
+        const ox = Phaser.Math.Between(-1, 1);
+        this.scene.tweens.add({
+          targets: this, x: this.x + ox * 2, duration: 60, yoyo: true, repeat: 2,
+        });
+      }
+      if (this.angryEmote) {
+        this.angryEmote.setPosition(this.x + 12, this.y - 52);
+      }
+    } else if (this.angryEmote) {
+      this.angryEmote.destroy();
+      this.angryEmote = undefined;
+    }
+  }
+
   takeOrder(): void {
     if (this.aiState !== 'waiting_order') return;
     this.aiState = 'order_taken';
@@ -254,6 +296,8 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
       : [{ x: DOOR_CENTER_X, y: DOOR_EXIT_Y }];
     this.patienceBar?.destroy();
     this.patienceBar = undefined;
+    this.angryEmote?.destroy();
+    this.angryEmote = undefined;
     this.hideOrderBubble();
   }
 
@@ -302,5 +346,6 @@ export class Customer extends Phaser.Physics.Arcade.Sprite {
   cleanup(): void {
     this.speechBubble?.destroy();
     this.patienceBar?.destroy();
+    this.angryEmote?.destroy();
   }
 }

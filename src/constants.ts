@@ -9,13 +9,13 @@ export const DAY_DURATION_MS = 300_000; // 5 minutes
 export const CUSTOMER_SPAWN_MS = 18_000; // base 18 seconds between spawns
 
 export const MENU_ITEMS = [
-  { id: 'moon_mocha',       name: 'Moon Mocha',         price: 18, prepTime: 10000, station: 'coffee' },
-  { id: 'zerog_latte',      name: 'Zero-G Latte',       price: 14, prepTime: 8000,  station: 'coffee' },
-  { id: 'luna_pancakes',    name: 'Lunar Pancakes',     price: 22, prepTime: 18000, station: 'stove'  },
-  { id: 'star_cookies',     name: 'Stardust Cookies',   price: 12, prepTime: 14000, station: 'prep'   },
-  { id: 'lunar_fondue',     name: 'Lunar Fondue',       price: 32, prepTime: 22000, station: 'stove'  },
-  { id: 'nebula_risotto',   name: 'Nebula Risotto',     price: 48, prepTime: 28000, station: 'stove'  },
-  { id: 'gravity_souffle',  name: 'Gravity Soufflé',   price: 68, prepTime: 35000, station: 'prep'   },
+  { id: 'moon_mocha',       name: 'Moon Mocha',         price: 18, prepTime: 10000, station: 'coffee', recipeCost: 0,   description: 'Dark-roasted beans from the Sea of Tranquility, with a hint of lunar mineral water. Rich, bold, and weightless.' },
+  { id: 'zerog_latte',      name: 'Zero-G Latte',       price: 14, prepTime: 8000,  station: 'coffee', recipeCost: 0,   description: 'Silky steamed milk in a sealed teal capsule — floats on the palate just like it floats in orbit.' },
+  { id: 'luna_pancakes',    name: 'Lunar Pancakes',     price: 22, prepTime: 18000, station: 'stove',  recipeCost: 40,  description: 'A golden stack of fluffy pancakes made with regolith-ground flour, topped with moon-butter and crater-berry syrup.' },
+  { id: 'star_cookies',     name: 'Stardust Cookies',   price: 12, prepTime: 14000, station: 'prep',   recipeCost: 30,  description: 'Crispy shortbread dusted with edible stardust and shaped into constellations. Best enjoyed with zero-gravity tea.' },
+  { id: 'lunar_fondue',     name: 'Lunar Fondue',       price: 32, prepTime: 22000, station: 'stove',  recipeCost: 80,  description: 'A bubbling pot of aged moon-cheese kept molten by a low-gravity flame. Served with asteroid bread chunks for dipping.' },
+  { id: 'nebula_risotto',   name: 'Nebula Risotto',     price: 48, prepTime: 28000, station: 'stove',  recipeCost: 140, description: 'Arborio rice slow-cooked in violet plasma broth and garnished with crystallised stardust. A cosmos on a plate.' },
+  { id: 'gravity_souffle',  name: 'Gravity Soufflé',   price: 68, prepTime: 35000, station: 'prep',   recipeCost: 220, description: 'A gravity-defying pastry that rises perfectly in 1/6th gravity. Crisp outside, impossibly airy within. Order soon — it collapses on re-entry.' },
 ] as const;
 
 export type MenuId = typeof MENU_ITEMS[number]['id'];
@@ -66,6 +66,7 @@ export const DECORATION_ITEMS: DecorationDef[] = [
   // Seating — place to add table + chairs that customers can sit at
   { id: 'table_single', name: 'Café Table',   category: 'seating',  cost:  90, ambianceValue: 0, spriteKey: 'obj_table',       tileW: 1, tileH: 1, seats: 1, minTier: 1 },
   { id: 'table_group',  name: 'Group Booth',  category: 'seating',  cost: 170, ambianceValue: 0, spriteKey: 'obj_table_group',  tileW: 1, tileH: 1, seats: 2, minTier: 2 },
+  { id: 'bar_stool',    name: 'Bar Stool',    category: 'seating',  cost:  80, ambianceValue: 5, spriteKey: 'obj_bar_stool',    tileW: 1, tileH: 1, seats: 1, minTier: 3 },
   // Furniture
   { id: 'round_table',    name: 'Round Table',   category: 'furniture', cost:  60, ambianceValue: 12, spriteKey: 'deco_round_table',   tileW: 1, tileH: 1, minTier: 1 },
   { id: 'velvet_chair',   name: 'Velvet Chair',  category: 'furniture', cost:  80, ambianceValue: 15, spriteKey: 'deco_velvet_chair',  tileW: 1, tileH: 1, minTier: 2 },

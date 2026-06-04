@@ -125,6 +125,16 @@ export class GameScene extends Phaser.Scene {
   private tableChairSprites   = new Map<string, Phaser.GameObjects.Image[]>();
   private tableLabels         = new Map<string, Phaser.GameObjects.Text>();
 
+  // Entrance queue
+  private customerQueue: Array<{ type: CustomerType }> = [];
+  private queueSprites: Phaser.GameObjects.Sprite[] = [];
+  private queueLabel?: Phaser.GameObjects.Text;
+
+  // Per-day metrics
+  private servedToday = 0;
+  private revenueToday = 0;
+  private popularityHistory: Array<{ day: number; served: number; revenue: number }> = [];
+
   constructor() { super('GameScene'); }
 
   create(): void {
@@ -160,16 +170,24 @@ export class GameScene extends Phaser.Scene {
     this.deliveryArrow = undefined;
     this.catPetCooldowns = new Map();
     this.employeeDeliveryIds = new Set();
+    this.customerQueue = [];
+    this.queueSprites = [];
+    this.queueLabel = undefined;
+    this.servedToday = 0;
+    this.revenueToday = 0;
 
     const saved = loadGame() ?? defaultSaveState();
     this.money = saved.money;
     this.reputation = saved.reputation;
     this.day = saved.day;
     this.totalServed = saved.totalServed;
+    this.popularityHistory = saved.popularityHistory ?? [];
     this.shopState = saved.shop ?? {
       catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
       placedDecorations: [], ownedTableSlotIds: [0, 1, 2],
       cooks: 0, guards: 0, caterers: 0,
+      ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
+      dailyMenuIds: ['moon_mocha', 'zerog_latte'],
     };
 
     this.buildMap();
@@ -204,6 +222,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.scheduleNextCustomer();
+    this.spawnBookedGuests();
+
+    // When scene wakes from sleep (returning from main menu), refresh the HUD
+    this.events.on('wake', () => { this.emitUIUpdate(); }, this);
 
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on('down', () => {
       if (this.isStorePanelOpen) { this.closeStorePanel(); }
@@ -228,7 +250,7 @@ export class GameScene extends Phaser.Scene {
 
     this.game.events.on('game_event', (evt: {
       type: string; defId?: string; slotId?: number;
-      role?: EmployeeRole; upgradeId?: string;
+      role?: EmployeeRole; upgradeId?: string; itemId?: string;
     }) => {
       if (evt.type === 'start_placement') {
         const def = DECORATION_ITEMS.find(d => d.id === evt.defId);
@@ -243,6 +265,10 @@ export class GameScene extends Phaser.Scene {
         this.handleHireStaff(evt.role);
       } else if (evt.type === 'buy_kitchen' && evt.upgradeId) {
         this.handleBuyKitchen(evt.upgradeId);
+      } else if (evt.type === 'buy_recipe' && evt.itemId) {
+        this.handleBuyRecipe(evt.itemId);
+      } else if (evt.type === 'toggle_daily_recipe' && evt.itemId) {
+        this.handleToggleDailyRecipe(evt.itemId);
       }
     }, this);
 
@@ -466,75 +492,94 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildDecorations(): void {
-    const earthX = 22 * TILE;
-    const earthY = 2.5 * TILE;
-    const earth = this.add.graphics().setDepth(1.5);
-    earth.fillStyle(COLORS.EARTH_OCEAN, 0.08); earth.fillCircle(earthX, earthY, 56);
-    earth.fillStyle(COLORS.EARTH_OCEAN, 1); earth.fillCircle(earthX, earthY, 42);
-    earth.fillStyle(COLORS.EARTH_LAND, 1);
-    earth.fillEllipse(earthX - 10, earthY - 14, 26, 20);
-    earth.fillEllipse(earthX + 12, earthY + 10, 22, 16);
-    earth.fillEllipse(earthX - 14, earthY + 12, 16, 14);
-    earth.fillStyle(COLORS.EARTH_CLOUD, 0.88);
-    earth.fillEllipse(earthX - 2, earthY - 24, 30, 12);
-    earth.fillEllipse(earthX + 14, earthY, 22, 10);
-    earth.fillEllipse(earthX - 18, earthY + 2, 18, 8);
+    const tier = this.getCurrentTier().level;
 
-    const moonX = 6 * TILE;
-    const moonY = 2.5 * TILE;
-    const moonG = this.add.graphics().setDepth(1.5);
-    moonG.fillStyle(COLORS.MOON_LIGHT, 0.6); moonG.fillCircle(moonX, moonY, 20);
-    moonG.fillStyle(COLORS.MOON_DARK, 0.8); moonG.fillCircle(moonX, moonY, 18);
-    moonG.fillStyle(COLORS.MOON_GRAY, 1); moonG.fillCircle(moonX - 4, moonY - 3, 14);
+    // ── Sky objects (tier 2+) ─────────────────────────────────────
+    if (tier >= 2) {
+      const moonX = 6 * TILE;
+      const moonY = 2.5 * TILE;
+      const moonG = this.add.graphics().setDepth(1.5);
+      moonG.fillStyle(COLORS.MOON_LIGHT, 0.6); moonG.fillCircle(moonX, moonY, 20);
+      moonG.fillStyle(COLORS.MOON_DARK, 0.8); moonG.fillCircle(moonX, moonY, 18);
+      moonG.fillStyle(COLORS.MOON_GRAY, 1); moonG.fillCircle(moonX - 4, moonY - 3, 14);
+    }
 
-    const nebula = this.add.graphics().setDepth(1.4).setBlendMode(Phaser.BlendModes.ADD);
-    nebula.fillStyle(0xFF6600, 0.04); nebula.fillCircle(15 * TILE, 2 * TILE, 200);
-    nebula.fillStyle(0x4400AA, 0.06); nebula.fillCircle(20 * TILE, 3 * TILE, 160);
+    if (tier >= 3) {
+      const earthX = 22 * TILE;
+      const earthY = 2.5 * TILE;
+      const earth = this.add.graphics().setDepth(1.5);
+      earth.fillStyle(COLORS.EARTH_OCEAN, 0.08); earth.fillCircle(earthX, earthY, 56);
+      earth.fillStyle(COLORS.EARTH_OCEAN, 1);    earth.fillCircle(earthX, earthY, 42);
+      earth.fillStyle(COLORS.EARTH_LAND, 1);
+      earth.fillEllipse(earthX - 10, earthY - 14, 26, 20);
+      earth.fillEllipse(earthX + 12, earthY + 10, 22, 16);
+      earth.fillEllipse(earthX - 14, earthY + 12, 16, 14);
+      earth.fillStyle(COLORS.EARTH_CLOUD, 0.88);
+      earth.fillEllipse(earthX - 2, earthY - 24, 30, 12);
+      earth.fillEllipse(earthX + 14, earthY, 22, 10);
+      earth.fillEllipse(earthX - 18, earthY + 2, 18, 8);
 
-    const plantPositions = [
-      { col: 1, row: 4 }, { col: 28, row: 4 },
-      { col: 1, row: 14 }, { col: 28, row: 14 },
-      { col: 1, row: 9 }, { col: 28, row: 9 },
-    ];
-    plantPositions.forEach(pos => {
-      this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
-    });
+      const nebula = this.add.graphics().setDepth(1.4).setBlendMode(Phaser.BlendModes.ADD);
+      nebula.fillStyle(0xFF6600, 0.04); nebula.fillCircle(15 * TILE, 2 * TILE, 200);
+      nebula.fillStyle(0x4400AA, 0.06); nebula.fillCircle(20 * TILE, 3 * TILE, 160);
+    }
 
+    // ── Food bowls (always — for the cats) ───────────────────────
     [{ col: 2, row: 14 }, { col: 26, row: 14 }].forEach(pos => {
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_food_bowl').setDepth(2).setOrigin(0.5, 0.7);
     });
 
+    // ── Cat toys / trees (owned items, always) ───────────────────
     const toyPositions = [
       { col: 3, row: 13 }, { col: 25, row: 13 },
-      { col: 3, row: 6 },  { col: 25, row: 6 },
+      { col: 3, row: 6  }, { col: 25, row: 6  },
     ];
     for (let i = 0; i < Math.min(this.shopState.catToys, toyPositions.length); i++) {
       const pos = toyPositions[i];
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, 'obj_cat_toy').setDepth(3).setOrigin(0.5, 1);
     }
-
-    const treePositions = [
-      { col: 8, row: 4 }, { col: 20, row: 4 },
-    ];
+    const treePositions = [{ col: 8, row: 4 }, { col: 20, row: 4 }];
     for (let i = 0; i < Math.min(this.shopState.catTrees, treePositions.length); i++) {
       const pos = treePositions[i];
       this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_cat_tree').setDepth(3).setOrigin(0.5, 1);
     }
 
-    const lightGraphics = this.add.graphics().setDepth(0.5).setBlendMode(Phaser.BlendModes.ADD);
-    const lightPositions = [
-      [4 * TILE, 8 * TILE],   [8 * TILE, 8 * TILE],
-      [4 * TILE, 12 * TILE],  [8 * TILE, 12 * TILE],
-      [22 * TILE, 8 * TILE],  [26 * TILE, 8 * TILE],
-      [22 * TILE, 12 * TILE], [26 * TILE, 12 * TILE],
-      [8 * TILE,  13 * TILE], [15 * TILE, 13 * TILE], [22 * TILE, 13 * TILE],
-      [15 * TILE, 7.5 * TILE],
-    ];
-    lightPositions.forEach(([lx, ly]) => {
-      lightGraphics.fillStyle(0xFF8800, 0.055);
-      lightGraphics.fillCircle(lx, ly, 72);
-    });
+    // ── Plants (tier 3+) ─────────────────────────────────────────
+    if (tier >= 3) {
+      const plantPositions = [
+        { col: 1, row: 4 }, { col: 28, row: 4 },
+        { col: 1, row: 14 }, { col: 28, row: 14 },
+        { col: 1, row: 9 }, { col: 28, row: 9 },
+      ];
+      plantPositions.forEach(pos => {
+        this.add.sprite(pos.col * TILE + TILE/2, pos.row * TILE + TILE, 'obj_plant').setDepth(3).setOrigin(0.5, 1);
+      });
+    }
 
+    // ── Ambient light pools (tier 2+, strengthen at tier 3+) ─────
+    if (tier >= 2) {
+      const lightAlpha = tier >= 3 ? 0.055 : 0.022;
+      const lightGraphics = this.add.graphics().setDepth(0.5).setBlendMode(Phaser.BlendModes.ADD);
+      const lightPositions: number[][] = tier >= 3
+        ? [
+            [4 * TILE, 8 * TILE],   [8 * TILE, 8 * TILE],
+            [4 * TILE, 12 * TILE],  [8 * TILE, 12 * TILE],
+            [22 * TILE, 8 * TILE],  [26 * TILE, 8 * TILE],
+            [22 * TILE, 12 * TILE], [26 * TILE, 12 * TILE],
+            [8 * TILE, 13 * TILE],  [15 * TILE, 13 * TILE], [22 * TILE, 13 * TILE],
+            [15 * TILE, 7.5 * TILE],
+          ]
+        : [
+            [4 * TILE, 10 * TILE],  [26 * TILE, 10 * TILE],
+            [15 * TILE, 7.5 * TILE],
+          ];
+      lightPositions.forEach(([lx, ly]) => {
+        lightGraphics.fillStyle(0xFF8800, lightAlpha);
+        lightGraphics.fillCircle(lx, ly, 72);
+      });
+    }
+
+    // ── Kitchen label (always) ────────────────────────────────────
     this.add.text(15 * TILE, 5.5 * TILE, 'KITCHEN', {
       fontSize: '11px', color: '#C8920A', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 2,
@@ -542,26 +587,50 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildExteriorDecor(): void {
-    const rocks: Array<{ col: number; row: number; big: boolean }> = [
+    const tier = this.getCurrentTier().level;
+
+    // Tier 1 — bare moon surface, nothing at all
+    if (tier < 2) return;
+
+    // ── Tier 2+: basic rocks and craters ─────────────────────────
+    const craterG = this.add.graphics().setDepth(0.5);
+    [
+      [4 * TILE, 16 * TILE + 14],
+      [27 * TILE, 17 * TILE + 10],
+    ].forEach(([cx, cy]) => {
+      craterG.fillStyle(COLORS.MOON_DARK, 1); craterG.fillCircle(cx, cy, 10);
+      craterG.fillStyle(COLORS.MOON_LIGHT, 0.6); craterG.fillCircle(cx - 3, cy - 3, 4);
+    });
+
+    const tier2Rocks: Array<{ col: number; row: number; big: boolean }> = [
       { col: 1,  row: 16, big: true  },
+      { col: 25, row: 16, big: true  },
+    ];
+    tier2Rocks.forEach(r => {
+      this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, r.big ? 'obj_moon_rock_lg' : 'obj_moon_rock_sm')
+        .setDepth(2).setOrigin(0.5, 0.8);
+    });
+
+    if (tier < 3) return;
+
+    // ── Tier 3+: flag, more rocks, footprints ────────────────────
+    const tier3Rocks: Array<{ col: number; row: number; big: boolean }> = [
       { col: 5,  row: 17, big: false },
       { col: 20, row: 17, big: false },
-      { col: 25, row: 16, big: true  },
       { col: 28, row: 17, big: false },
       { col: 10, row: 16, big: false },
       { col: 18, row: 16, big: false },
     ];
-    rocks.forEach(r => {
-      const tex = r.big ? 'obj_moon_rock_lg' : 'obj_moon_rock_sm';
-      this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, tex).setDepth(2).setOrigin(0.5, 0.8);
+    tier3Rocks.forEach(r => {
+      this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, 'obj_moon_rock_sm')
+        .setDepth(2).setOrigin(0.5, 0.8);
     });
 
-    [ { col: 0, row: 4 }, { col: 0, row: 10 }, { col: 29, row: 6 }, { col: 29, row: 12 } ].forEach(r => {
-      this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, 'obj_moon_rock_sm').setDepth(2).setOrigin(0.5, 0.8);
-    });
+    // Third crater
+    craterG.fillStyle(COLORS.MOON_DARK, 1); craterG.fillCircle(13 * TILE, 17 * TILE + 6, 10);
+    craterG.fillStyle(COLORS.MOON_LIGHT, 0.6); craterG.fillCircle(13 * TILE - 3, 17 * TILE + 3, 4);
 
     this.add.sprite(9 * TILE + TILE/2, 16 * TILE, 'obj_moon_flag').setDepth(3).setOrigin(0.5, 1);
-    this.add.sprite(23 * TILE, 16 * TILE + 4, 'obj_lunar_rover').setDepth(3).setOrigin(0.5, 1);
 
     const footG = this.add.graphics().setDepth(1.5).setAlpha(0.5);
     footG.fillStyle(COLORS.MOON_DARK, 1);
@@ -571,11 +640,37 @@ export class GameScene extends Phaser.Scene {
       footG.fillEllipse(fx, fy, 8, 5);
     }
 
-    const craterG = this.add.graphics().setDepth(0.5);
-    [[4 * TILE, 16 * TILE + 14], [13 * TILE, 17 * TILE + 6], [27 * TILE, 17 * TILE + 10]].forEach(([cx, cy]) => {
-      craterG.fillStyle(COLORS.MOON_DARK, 1); craterG.fillCircle(cx, cy, 10);
-      craterG.fillStyle(COLORS.MOON_LIGHT, 0.6); craterG.fillCircle(cx - 3, cy - 3, 4);
+    if (tier < 4) return;
+
+    // ── Tier 4+: rover, space-side rocks, queue velvet rope ──────
+    this.add.sprite(23 * TILE, 16 * TILE + 4, 'obj_lunar_rover').setDepth(3).setOrigin(0.5, 1);
+
+    [{ col: 0, row: 4 }, { col: 0, row: 10 }, { col: 29, row: 6 }, { col: 29, row: 12 }].forEach(r => {
+      this.add.sprite(r.col * TILE + TILE/2, r.row * TILE + TILE/2, 'obj_moon_rock_sm').setDepth(2).setOrigin(0.5, 0.8);
     });
+
+    // Queue velvet rope poles flanking the entrance
+    this.add.sprite(12.5 * TILE, 15.8 * TILE, 'obj_queue_pole').setDepth(3).setOrigin(0.5, 1);
+    this.add.sprite(17.5 * TILE, 15.8 * TILE, 'obj_queue_pole').setDepth(3).setOrigin(0.5, 1);
+    // Rope connecting them
+    const ropeG = this.add.graphics().setDepth(2.5);
+    ropeG.lineStyle(2, 0xAA2233, 0.85);
+    ropeG.strokeRect(12.5 * TILE, 15.2 * TILE, 5 * TILE, 0);
+    // bezier-style rope droop
+    ropeG.beginPath();
+    ropeG.moveTo(12.5 * TILE, 15.2 * TILE);
+    ropeG.lineTo(15 * TILE, 15.5 * TILE);
+    ropeG.lineTo(17.5 * TILE, 15.2 * TILE);
+    ropeG.strokePath();
+
+    if (tier < 5) return;
+
+    // ── Tier 5+: glowing entrance and dome glow ──────────────────
+    const domeGlow = this.add.graphics().setDepth(0.6).setBlendMode(Phaser.BlendModes.ADD);
+    domeGlow.fillStyle(0x4488FF, 0.08);
+    domeGlow.fillCircle(15 * TILE, 15 * TILE, 120);
+    domeGlow.fillStyle(0x88CCFF, 0.04);
+    domeGlow.fillCircle(15 * TILE, 15 * TILE, 200);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -624,6 +719,35 @@ export class GameScene extends Phaser.Scene {
     def: DecorationDef, tileX: number, tileY: number,
     wx: number, wy: number, animate: boolean,
   ): void {
+    // ── Bar stool ─────────────────────────────────────────────────
+    if (def.id === 'bar_stool') {
+      const spr = this.add.image(wx, wy, 'obj_bar_stool').setOrigin(0.5, 0.85).setDepth(3 + wy / 10000);
+      if (animate) { spr.setAlpha(0); this.tweens.add({ targets: spr, alpha: 1, duration: 250 }); }
+      this.decorationSprites.set(`${tileX},${tileY}`, spr);
+
+      const tBody = this.furnitureGroup.create(wx, wy, 'obj_bar_stool') as Phaser.Physics.Arcade.Image;
+      tBody.setVisible(false).setSize(16, 16).setOffset(2, 8).refreshBody();
+      this.tableFurnitureBodies.set(`${tileX},${tileY}`, tBody);
+
+      const body = tBody.body as Phaser.Physics.Arcade.StaticBody;
+      if (body) {
+        this.pathfinder.blockRect(body.x, body.y, body.width, body.height);
+        this.customerPathfinder.blockRect(body.x, body.y, body.width, body.height);
+      }
+
+      const tableId = 100 + this.tables.filter(t => t.id >= 100).length;
+      this.tables.push({ id: tableId, worldX: wx, worldY: wy,
+        seats: [{ seatX: wx, seatY: wy, occupied: false, customerId: null }] });
+
+      const label = this.add.text(wx, wy - 16, `B${tableId - 99}`, {
+        fontSize: '9px', color: '#FFDD88', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#3A1A00', strokeThickness: 3,
+      }).setOrigin(0.5, 0.5).setDepth(4.5);
+      this.tableLabels.set(`${tileX},${tileY}`, label);
+      this.hardBlockedTiles.add(`${tileX},${tileY}`);
+      return;
+    }
+
     const isGroup = def.id === 'table_group';
     const bW = isGroup ? 68 : 44;
 
@@ -698,8 +822,9 @@ export class GameScene extends Phaser.Scene {
 
   getEffectiveMenu(): MenuItemDef[] {
     const tier = this.getCurrentTier();
+    const daily = new Set(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
     return (MENU_ITEMS as unknown as MenuItemDef[])
-      .filter(item => tier.unlockedMenuIds.includes(item.id as any))
+      .filter(item => daily.has(item.id as string) && tier.unlockedMenuIds.includes(item.id as any))
       .map(item => ({ ...item, price: Math.round(item.price * tier.priceMultiplier) }));
   }
 
@@ -784,6 +909,7 @@ export class GameScene extends Phaser.Scene {
       this.showFloatingText(wx, wy + 4, `-${def.cost} ✦`, '#FF8888');
       this.playChime();
       this.checkTierUp();
+      this.saveCurrentState();
       this.emitUIUpdate();
     } else {
       const key = `${tileX},${tileY}`;
@@ -890,6 +1016,7 @@ export class GameScene extends Phaser.Scene {
 
     this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} hired!`, '#60FF88');
     this.playChime();
+    this.saveCurrentState();
     this.emitUIUpdate();
   }
 
@@ -905,8 +1032,42 @@ export class GameScene extends Phaser.Scene {
       this.addExtraKitchenStations();
       this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, 'Extra machines added!', '#AAFFAA');
       this.playChime();
+      this.saveCurrentState();
       this.emitUIUpdate();
     }
+  }
+
+  private handleBuyRecipe(itemId: string): void {
+    const item = (MENU_ITEMS as unknown as MenuItemDef[]).find(m => m.id === itemId);
+    if (!item) return;
+    const owned = this.shopState.ownedRecipeIds ?? [];
+    if (owned.includes(itemId)) return;
+    const tier = this.getCurrentTier();
+    if (!tier.unlockedMenuIds.includes(itemId as any)) return;
+    const cost = item.recipeCost ?? 0;
+    if (this.money < cost) {
+      this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+      return;
+    }
+    this.money -= cost;
+    this.shopState.ownedRecipeIds = [...owned, itemId];
+    this.shopState.dailyMenuIds = [...(this.shopState.dailyMenuIds ?? []), itemId];
+    this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, `${item.name} learned!`, '#AAFFAA');
+    this.playChime();
+    this.saveCurrentState();
+    this.emitUIUpdate();
+  }
+
+  private handleToggleDailyRecipe(itemId: string): void {
+    const daily = this.shopState.dailyMenuIds ?? [];
+    if (daily.includes(itemId)) {
+      if (daily.length <= 1) return;
+      this.shopState.dailyMenuIds = daily.filter(id => id !== itemId);
+    } else {
+      this.shopState.dailyMenuIds = [...daily, itemId];
+    }
+    this.saveCurrentState();
+    this.emitUIUpdate();
   }
 
   private getStaffCount(role: EmployeeRole): number {
@@ -1003,6 +1164,8 @@ export class GameScene extends Phaser.Scene {
       this.money += earned;
       this.reputation = Math.min(100, this.reputation + 1);
       this.totalServed++;
+      this.servedToday++;
+      this.revenueToday += earned;
       this.showFloatingText(c.x, c.y - 30, `+${earned} ✦`, '#FFD700');
       this.playChime();
       this.emitUIUpdate();
@@ -1057,20 +1220,102 @@ export class GameScene extends Phaser.Scene {
     }
 
     const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
-    if (!freeTable) return;
-    const freeSeat = freeTable.seats.find(s => !s.occupied)!;
+    if (!freeTable) {
+      // No seats — add to queue if tier allows
+      const cap = this.getQueueCapacity();
+      if (this.customerQueue.length < cap) {
+        const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
+        this.customerQueue.push({ type: types[Math.floor(Math.random() * types.length)] });
+        this.rebuildQueueSprites();
+      }
+      return;
+    }
 
-    const customer = this.createCustomer(freeSeat.seatX, freeSeat.seatY);
+    // Dequeue a waiting type if available, else pick random
+    let type: CustomerType;
+    if (this.customerQueue.length > 0) {
+      type = this.customerQueue.shift()!.type;
+      this.rebuildQueueSprites();
+    } else {
+      const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
+      type = types[Math.floor(Math.random() * types.length)];
+    }
+
+    const freeSeat = freeTable.seats.find(s => !s.occupied)!;
+    const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, type);
     customer.tableId = freeTable.id;
     this.customers.push(customer);
     freeSeat.occupied = true;
     freeSeat.customerId = customer.customerId;
     this.physics.add.collider(customer, this.wallGroup);
 
-    // Day 1 first customer — show tutorial hint
     if (this.day === 1 && this.nextCustomerId === 2) {
       this.time.delayedCall(4000, () => this.showTutorialHint());
     }
+  }
+
+  private tryDequeueCustomer(): void {
+    if (this.customerQueue.length === 0 || this.dayEnded) return;
+    const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
+    if (!freeTable) return;
+    const entry = this.customerQueue.shift()!;
+    this.rebuildQueueSprites();
+    const freeSeat = freeTable.seats.find(s => !s.occupied)!;
+    const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, entry.type);
+    customer.tableId = freeTable.id;
+    this.customers.push(customer);
+    freeSeat.occupied = true;
+    freeSeat.customerId = customer.customerId;
+    this.physics.add.collider(customer, this.wallGroup);
+  }
+
+  private getQueueCapacity(): number {
+    const tier = this.getCurrentTier().level;
+    return tier <= 1 ? 0 : Math.min(8, (tier - 1) * 2);
+  }
+
+  private getQueuePositions(): Array<{x: number; y: number}> {
+    const cx = 15.5 * TILE;
+    const y1 = 16.5 * TILE;
+    const y2 = 17.2 * TILE;
+    return [
+      { x: cx,            y: y1 },
+      { x: cx - TILE,     y: y1 },
+      { x: cx + TILE,     y: y1 },
+      { x: cx - 2 * TILE, y: y1 },
+      { x: cx + 2 * TILE, y: y1 },
+      { x: cx,            y: y2 },
+      { x: cx - TILE,     y: y2 },
+      { x: cx + TILE,     y: y2 },
+    ];
+  }
+
+  private rebuildQueueSprites(): void {
+    this.queueSprites.forEach(s => s.destroy());
+    this.queueSprites = [];
+    this.queueLabel?.destroy();
+    this.queueLabel = undefined;
+
+    if (this.customerQueue.length === 0) return;
+
+    const positions = this.getQueuePositions();
+    this.customerQueue.forEach((entry, i) => {
+      if (i >= positions.length) return;
+      const pos = positions[i];
+      const spr = this.add.sprite(pos.x, pos.y, `customer_${entry.type}`)
+        .setScale(0.72).setDepth(7).setTint(0xBBBBCC).setAlpha(0.88);
+      this.queueSprites.push(spr);
+    });
+
+    const overflow = this.customerQueue.length - positions.length;
+    const labelText = overflow > 0
+      ? `⏳ ${this.customerQueue.length} waiting (+${overflow})`
+      : `⏳ ${this.customerQueue.length} waiting`;
+    this.queueLabel = this.add.text(15.5 * TILE, 16 * TILE - 6, labelText, {
+      fontSize: '10px', color: '#FFD700', fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 2,
+      backgroundColor: '#00000077', padding: { x: 4, y: 2 },
+    }).setOrigin(0.5, 1).setDepth(8);
   }
 
   private showTutorialHint(): void {
@@ -1109,7 +1354,10 @@ export class GameScene extends Phaser.Scene {
 
   private createCustomer(seatX: number, seatY: number): Customer {
     const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
-    const type = types[Math.floor(Math.random() * types.length)];
+    return this.createCustomerOfType(seatX, seatY, types[Math.floor(Math.random() * types.length)]);
+  }
+
+  private createCustomerOfType(seatX: number, seatY: number, type: CustomerType, boostedPatience = false): Customer {
     const spawnX = (14 + Math.floor(Math.random() * 4)) * TILE + TILE / 2;
     const spawnY = 16 * TILE + TILE / 2;
     const customer = new Customer(
@@ -1120,6 +1368,7 @@ export class GameScene extends Phaser.Scene {
     );
     customer.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
     customer.getAvailableMenuItems = () => this.getEffectiveMenu();
+    if (boostedPatience) customer.patience = 150;
     return customer;
   }
 
@@ -1245,6 +1494,8 @@ export class GameScene extends Phaser.Scene {
           this.money += earned;
           this.reputation = Math.min(100, this.reputation + 1);
           this.totalServed++;
+          this.servedToday++;
+          this.revenueToday += earned;
           this.showFloatingText(this.player.x, this.player.y - 30, `+${earned} ✦`, '#FFD700');
           this.playChime();
           this.emitUIUpdate();
@@ -1412,11 +1663,22 @@ export class GameScene extends Phaser.Scene {
     this.dayPhase = 'night';
     this.player.clearMoveTargets();
 
+    // Clear queue
+    this.queueSprites.forEach(s => s.destroy());
+    this.queueSprites = [];
+    this.queueLabel?.destroy();
+    this.queueLabel = undefined;
+    this.customerQueue = [];
+
     this.customers.forEach(c => {
       if (c.active && c.aiState !== 'walking_out' && c.aiState !== 'gone') {
         c.beginLeave();
       }
     });
+
+    // Record today's stats
+    this.popularityHistory.push({ day: this.day, served: this.servedToday, revenue: this.revenueToday });
+    if (this.popularityHistory.length > 7) this.popularityHistory.splice(0, this.popularityHistory.length - 7);
 
     this.time.delayedCall(4000, () => this.showDayEndScreen());
   }
@@ -1431,10 +1693,12 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: overlay, alpha: 0.78, duration: 1000 });
 
     const cx = GAME_W / 2;
+    const tier = this.getCurrentTier();
+    const hasBooking = tier.level >= 4;
+    const panelH = hasBooking ? 540 : 500;
     const panelX = cx - 200;
-    const panelY = 50;
+    const panelY = hasBooking ? 30 : 50;
     const panelW = 400;
-    const panelH = 500;
 
     const panel = this.add.graphics().setDepth(201);
     panel.fillStyle(COLORS.UI_PANEL, 1);
@@ -1443,13 +1707,14 @@ export class GameScene extends Phaser.Scene {
     panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 12);
 
     const avgCatHappiness = this.cats.reduce((s, c) => s + c.happiness, 0) / Math.max(1, this.cats.length);
+    const pY = panelY; // base y offset
 
     const lines = [
-      { text: `Day ${this.day} Complete!`,               size: '22px', color: '#FFD700', y: 88 },
-      { text: `Customers served: ${this.totalServed}`,   size: '13px', color: '#FFEEDD', y: 130 },
-      { text: `Reputation: ${this.reputation} / 100`,    size: '13px', color: '#FFE566', y: 152 },
-      { text: `Cat happiness: ${Math.round(avgCatHappiness)}%`, size: '13px', color: '#FF9AB0', y: 174 },
-      { text: `Bank balance: ${this.money} ✦`,           size: '16px', color: '#FFD700', y: 200 },
+      { text: `Day ${this.day} Complete!`,                         size: '22px', color: '#FFD700', y: pY + 38 },
+      { text: `Served today: ${this.servedToday}  ·  Earned: ${this.revenueToday} ✦`, size: '12px', color: '#AACCAA', y: pY + 78 },
+      { text: `Reputation: ${this.reputation} / 100`,              size: '13px', color: '#FFE566', y: pY + 98 },
+      { text: `Cat happiness: ${Math.round(avgCatHappiness)}%`,    size: '13px', color: '#FF9AB0', y: pY + 118 },
+      { text: `Bank balance: ${this.money} ✦`,                     size: '16px', color: '#FFD700', y: pY + 142 },
     ];
     lines.forEach(l => {
       const t = this.add.text(cx, l.y, l.text, {
@@ -1459,24 +1724,125 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: t, alpha: 1, duration: 500, delay: 200 });
     });
 
+    // ── Popularity sparkline ──────────────────────────────────────
+    const chartTopY = pY + 168;
+    const recentHistory = this.popularityHistory.slice(-5);
+    if (recentHistory.length > 0) {
+      const maxServed = Math.max(1, ...recentHistory.map(h => h.served));
+      const barW = 14, barGap = 5, maxBarH = 22;
+      const totalW = recentHistory.length * (barW + barGap) - barGap;
+      const chartLeft = cx - totalW / 2;
+      const chartG = this.add.graphics().setDepth(202).setAlpha(0);
+      recentHistory.forEach((h, i) => {
+        const bh = Math.max(2, Math.round(h.served / maxServed * maxBarH));
+        const color = h.served >= maxServed * 0.7 ? 0x66CC66 : h.served >= maxServed * 0.4 ? 0xFFAA44 : 0x666688;
+        chartG.fillStyle(color, 0.85);
+        chartG.fillRoundedRect(chartLeft + i * (barW + barGap), chartTopY - bh, barW, bh, 2);
+        chartG.fillStyle(0xFFFFFF, 0.12);
+        chartG.fillRect(chartLeft + i * (barW + barGap), chartTopY - bh, barW, 2);
+      });
+      this.tweens.add({ targets: chartG, alpha: 1, duration: 600, delay: 400 });
+
+      const histLabel = this.add.text(cx, chartTopY + 4, `Last ${recentHistory.length} day${recentHistory.length > 1 ? 's' : ''} — served: ${recentHistory.map(h => h.served).join('  ')}`, {
+        fontSize: '9px', color: '#778866', fontFamily: 'monospace',
+      }).setOrigin(0.5, 0).setDepth(202).setAlpha(0);
+      this.tweens.add({ targets: histLabel, alpha: 1, duration: 600, delay: 500 });
+    }
+
+    // ── Separator + Cat Shop ──────────────────────────────────────
+    const catShopY = chartTopY + (recentHistory.length > 0 ? 34 : 10);
     const sep = this.add.graphics().setDepth(202);
     sep.lineStyle(1, COLORS.UI_GOLD, 0.4);
-    sep.lineBetween(cx - 165, 228, cx + 165, 228);
+    sep.lineBetween(cx - 165, catShopY, cx + 165, catShopY);
 
-    this.add.text(cx, 234, 'Cat Shop', {
-      fontSize: '15px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+    this.add.text(cx, catShopY + 6, 'Cat Shop', {
+      fontSize: '14px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setDepth(202);
 
-    // Cat shop only (tables/staff/kitchen are in the in-game store)
-    this.buildCatShopButtons(cx, 260);
+    this.buildCatShopButtons(cx, catShopY + 28);
 
-    const storeHint = this.add.text(cx, 388, '— Press F during the day to open the Store —', {
-      fontSize: '10px', color: '#887755', fontFamily: 'monospace',
-    }).setOrigin(0.5, 0).setDepth(202);
-    void storeHint;
+    // ── Booking section (tier 4+) ─────────────────────────────────
+    let nextDayBtnY = pY + 462;
+    if (hasBooking) {
+      const bookY = catShopY + 28 + 120;
+      const sep2 = this.add.graphics().setDepth(202);
+      sep2.lineStyle(1, COLORS.UI_GOLD, 0.3);
+      sep2.lineBetween(cx - 165, bookY, cx + 165, bookY);
 
-    const btnY = 462;
+      this.add.text(cx, bookY + 8, '📋 Reservations for tomorrow', {
+        fontSize: '12px', color: '#88CCFF', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(202);
+
+      const BOOKING_COST = 25;
+      const MAX_BOOKINGS = 4;
+      const bookings = { count: this.shopState.bookings ?? 0 };
+
+      const bookCountTxt = this.add.text(cx, bookY + 30, '', {
+        fontSize: '14px', color: '#FFE566', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(203);
+
+      const bookDescTxt = this.add.text(cx, bookY + 52, '', {
+        fontSize: '10px', color: '#998877', fontFamily: 'monospace',
+      }).setOrigin(0.5, 0).setDepth(203);
+
+      const refreshBooking = () => {
+        bookCountTxt.setText(`${bookings.count} / ${MAX_BOOKINGS} reserved  (${BOOKING_COST}✦ each)`);
+        const cost = bookings.count * BOOKING_COST;
+        bookDescTxt.setText(bookings.count > 0 ? `Booked guests arrive early with high patience  ·  Cost: ${cost}✦` : 'No reservations yet — guests arrive normally');
+      };
+      refreshBooking();
+
+      // Minus button
+      const minusG = this.add.graphics().setDepth(202);
+      const plusG  = this.add.graphics().setDepth(202);
+      const drawBtns = () => {
+        minusG.clear(); plusG.clear();
+        const canRemove = bookings.count > 0;
+        const canAdd    = bookings.count < MAX_BOOKINGS && this.money >= BOOKING_COST;
+        minusG.fillStyle(canRemove ? COLORS.UI_PANEL_LIGHT : 0x222222, 1);
+        minusG.fillRoundedRect(cx - 80, bookY + 28, 32, 26, 5);
+        minusG.lineStyle(1, canRemove ? COLORS.UI_GOLD : 0x444444, 1);
+        minusG.strokeRoundedRect(cx - 80, bookY + 28, 32, 26, 5);
+        plusG.fillStyle(canAdd ? COLORS.UI_PANEL_LIGHT : 0x222222, 1);
+        plusG.fillRoundedRect(cx + 48, bookY + 28, 32, 26, 5);
+        plusG.lineStyle(1, canAdd ? COLORS.UI_GOLD : 0x444444, 1);
+        plusG.strokeRoundedRect(cx + 48, bookY + 28, 32, 26, 5);
+      };
+      drawBtns();
+
+      this.add.text(cx - 64, bookY + 41, '−', { fontSize: '18px', color: '#FFD700', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(203);
+      this.add.text(cx + 64, bookY + 41, '+', { fontSize: '18px', color: '#FFD700', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(203);
+
+      const minusZone = this.add.zone(cx - 64, bookY + 41, 32, 26).setInteractive({ useHandCursor: true }).setDepth(204);
+      const plusZone  = this.add.zone(cx + 64, bookY + 41, 32, 26).setInteractive({ useHandCursor: true }).setDepth(204);
+
+      minusZone.on('pointerdown', () => {
+        if (bookings.count <= 0) return;
+        bookings.count--;
+        this.money += BOOKING_COST;
+        this.shopState.bookings = bookings.count;
+        refreshBooking(); drawBtns(); this.emitUIUpdate();
+      });
+      plusZone.on('pointerdown', () => {
+        if (bookings.count >= MAX_BOOKINGS || this.money < BOOKING_COST) return;
+        bookings.count++;
+        this.money -= BOOKING_COST;
+        this.shopState.bookings = bookings.count;
+        refreshBooking(); drawBtns(); this.emitUIUpdate();
+      });
+
+      nextDayBtnY = bookY + 96;
+    } else {
+      this.add.text(cx, catShopY + 162, '— Press F during the day to open the Store —', {
+        fontSize: '10px', color: '#887755', fontFamily: 'monospace',
+      }).setOrigin(0.5, 0).setDepth(202);
+    }
+
+    // ── Next Day button ───────────────────────────────────────────
+    const btnY = nextDayBtnY;
     const btn = this.add.graphics().setDepth(202);
     const drawBtn = (hover: boolean) => {
       btn.clear();
@@ -1588,6 +1954,30 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private spawnBookedGuests(): void {
+    const count = this.shopState.bookings ?? 0;
+    if (count <= 0) return;
+    this.shopState.bookings = 0; // consume bookings
+    for (let i = 0; i < count; i++) {
+      this.time.delayedCall(2000 + i * 2500, () => {
+        if (this.dayEnded) return;
+        const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
+        if (!freeTable) return;
+        const freeSeat = freeTable.seats.find(s => !s.occupied)!;
+        const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, type, true);
+        customer.tableId = freeTable.id;
+        this.customers.push(customer);
+        freeSeat.occupied = true;
+        freeSeat.customerId = customer.customerId;
+        this.physics.add.collider(customer, this.wallGroup);
+        this.showFloatingText(GAME_W / 2, GAME_H / 2 - 40, '★ Reserved guest arrived!', '#88CCFF');
+        this.playChime();
+      });
+    }
+  }
+
   private saveCurrentState(): void {
     saveGame({
       money: this.money,
@@ -1600,6 +1990,7 @@ export class GameScene extends Phaser.Scene {
         colorKey: c.colorKey as 'orange' | 'gray' | 'black' | 'cream',
         hunger: c.hunger, happiness: c.happiness, energy: c.energy,
       })),
+      popularityHistory: [...this.popularityHistory],
     });
   }
 
@@ -1653,8 +2044,18 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private goToMenu(): void {
+    // Clean up any open overlays so they don't linger on resume
+    if (this.isStorePanelOpen) { this.closeStorePanel(); }
+    this.pendingDecorationDef = null;
+    this.ghostSprite?.destroy(); this.ghostSprite = null;
+    this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
+
+    // Stop UIScene (fires shutdown → uiOverlay.hideHUD())
     this.scene.stop('UIScene');
-    this.scene.start('MainMenuScene');
+    // Sleep this scene so all in-flight state (customers, timer, orders) is preserved
+    this.scene.sleep('GameScene');
+    // Launch the menu on top
+    this.scene.launch('MainMenuScene');
   }
 
   private handleTap(pointer: Phaser.Input.Pointer): void {
@@ -1815,6 +2216,8 @@ export class GameScene extends Phaser.Scene {
       guards: this.shopState.guards ?? 0,
       caterers: this.shopState.caterers ?? 0,
       extraMachines: this.shopState.extraMachines ?? 0,
+      ownedRecipeIds: [...(this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
+      dailyMenuIds: [...(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
     });
   }
 
@@ -1887,6 +2290,7 @@ export class GameScene extends Phaser.Scene {
         this.customers.splice(i, 1);
         if (c.happiness < 40) this.reputation = Math.max(0, this.reputation - 1);
         this.emitUIUpdate();
+        this.tryDequeueCustomer();
       }
     }
 
