@@ -1,9 +1,21 @@
 import Phaser from 'phaser';
 import {
   EMPLOYEE_TYPES, DECORATION_ITEMS, CAFE_TIERS, MENU_ITEMS,
-  DecorationCategory, EmployeeRole,
+  DecorationCategory, EmployeeRole, MACHINE_DEFS,
 } from '../constants';
 import type { OrderInfo } from '../types';
+
+export interface DayReportData {
+  day: number;
+  servedToday: number;
+  revenueToday: number;
+  reputation: number;
+  avgCatHappiness: number;
+  money: number;
+  popularityHistory: Array<{ day: number; served: number; revenue: number }>;
+  tierLevel: number;
+  bookings: number;
+}
 import { touchControls } from './TouchControls';
 
 export interface UIState {
@@ -23,13 +35,12 @@ export interface UIState {
   cooks?: number;
   guards?: number;
   caterers?: number;
-  extraMachines?: number;
-  ownedStations?: string[];
+  ownedMachines?: string[];
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
 }
 
-type StoreTab = 'furnish' | 'kitchen' | 'staff' | 'menu';
+type ManagerSection = 'overview' | 'furnish' | 'kitchen' | 'staff' | 'menu';
 
 // ── SVG ICONS ─────────────────────────────────────────────────────────────────
 
@@ -160,7 +171,37 @@ const ITEM_ICONS: Record<string, string> = {
     <circle cx="16" cy="14" r="1.5" fill="#333"/>
     <path d="M12 17 Q14 18.5 16 17" stroke="#cc8899" stroke-width="1.2" fill="none"/>
   `),
-  // Kitchen
+  // Kitchen machines
+  'obj_griddle': svg(`
+    <rect x="3" y="12" width="22" height="10" rx="2" fill="#2a1a0a"/>
+    <rect x="5" y="13" width="18" height="7" rx="1.5" fill="#8b3a10"/>
+    <rect x="5" y="13" width="18" height="3" rx="1" fill="#b04a18" opacity="0.9"/>
+    <circle cx="11" cy="16.5" r="3.5" fill="none" stroke="#ff7722" stroke-width="1" opacity="0.6"/>
+    <circle cx="19" cy="16.5" r="3.5" fill="none" stroke="#ff7722" stroke-width="1" opacity="0.6"/>
+    <rect x="10" y="7" width="8" height="5" rx="1.5" fill="#1a0a00"/>
+    <rect x="11" y="8" width="6" height="1.5" rx="0.5" fill="#d4a820"/>
+  `),
+  'obj_mixer': svg(`
+    <rect x="6" y="19" width="16" height="6" rx="2.5" fill="#c0c8d8"/>
+    <rect x="7" y="20" width="14" height="3" rx="1" fill="#d8e0f0" opacity="0.8"/>
+    <rect x="12" y="9" width="5" height="11" rx="2" fill="#8090a8"/>
+    <rect x="12.5" y="10" width="3.5" height="8" rx="1" fill="#9aaabb" opacity="0.8"/>
+    <rect x="8" y="5" width="12" height="6" rx="2.5" fill="#6a8090"/>
+    <rect x="9" y="6" width="10" height="3" rx="1" fill="#7a90a0" opacity="0.8"/>
+    <line x1="14" y1="17" x2="12" y2="19" stroke="#d4a820" stroke-width="1.2"/>
+    <line x1="14" y1="17" x2="16" y2="19" stroke="#d4a820" stroke-width="1.2"/>
+  `),
+  'obj_oven': svg(`
+    <rect x="3" y="4" width="22" height="20" rx="2.5" fill="#2a2a3a"/>
+    <rect x="3" y="4" width="22" height="4" rx="2" fill="#3a3a4a"/>
+    <rect x="6" y="7" width="16" height="14" rx="1.5" fill="#1a1a28"/>
+    <rect x="8" y="9" width="12" height="9" rx="1" fill="#3a1800"/>
+    <rect x="8" y="9" width="12" height="9" rx="1" fill="#ff6600" opacity="0.3"/>
+    <rect x="9" y="10" width="10" height="3" rx="0.5" fill="#ff8800" opacity="0.25"/>
+    <rect x="8" y="21" width="12" height="2.5" rx="1.2" fill="#d4a820"/>
+    <rect x="11" y="4" width="1.5" height="3" rx="0.5" fill="#d4a820"/>
+    <rect x="15.5" y="4" width="1.5" height="3" rx="0.5" fill="#d4a820"/>
+  `),
   'obj_coffee_machine': svg(`
     <rect x="5" y="6" width="18" height="16" rx="2" fill="#334455"/>
     <rect x="7" y="8" width="8" height="6" rx="1" fill="#1a2233"/>
@@ -271,11 +312,13 @@ const FOOD_ICONS: Record<string, string> = {
   `, 24),
 };
 
-const STATION_LABELS: Record<string, string> = {
-  coffee: 'Coffee Machine',
-  stove: 'Stove',
-  prep: 'Prep Counter',
-};
+function machineName(machineId: string): string {
+  return MACHINE_DEFS.find(d => d.id === machineId)?.name ?? machineId;
+}
+
+function machineLabel(machines: readonly string[] | string[]): string {
+  return machines.map(machineName).join(' + ');
+}
 
 function categoryFallbackIcon(category: DecorationCategory): string {
   const map: Record<DecorationCategory, string> = {
@@ -293,8 +336,8 @@ function categoryFallbackIcon(category: DecorationCategory): string {
 
 class UIOverlay {
   private game?: Phaser.Game;
-  private storeOpen = false;
-  private activeTab: StoreTab = 'furnish';
+  private managerOpen = false;
+  private activeSection: ManagerSection = 'overview';
   private activeFurnishTab: DecorationCategory = 'seating';
   private lastState: UIState | null = null;
   private prevMoney = 0;
@@ -310,12 +353,17 @@ class UIOverlay {
   private dayBarFillEl!: HTMLElement;
   private phaseEl!: HTMLElement;
   private ordersEl!: HTMLElement;
-  private storePanelEl!: HTMLElement;
-  private storeContentEl!: HTMLElement;
+  private managerPanelEl!: HTMLElement;
+  private managerContentEl!: HTMLElement;
+  private managerBackdropEl!: HTMLElement;
+  private managerBalanceEl!: HTMLElement;
   private menuOverlayEl!: HTMLElement;
   private menuButtonsEl!: HTMLElement;
   private legendEl!: HTMLElement;
-  private backdropEl!: HTMLElement;
+  private dayReportEl!: HTMLElement;
+  private drBookings = 0;
+  private drMoney = 0;
+  private drTierLevel = 0;
 
   init(game: Phaser.Game): void {
     if (this.game) return;
@@ -334,37 +382,34 @@ class UIOverlay {
     this.dayBarFillEl   = document.getElementById('day-bar-fill')!;
     this.phaseEl        = document.getElementById('phase-text')!;
     this.ordersEl       = document.getElementById('orders-strip')!;
-    this.storePanelEl   = document.getElementById('store-panel')!;
-    this.storeContentEl = document.getElementById('store-content')!;
+    this.managerPanelEl   = document.getElementById('manager-panel')!;
+    this.managerContentEl = document.getElementById('manager-content')!;
+    this.managerBackdropEl = document.getElementById('manager-backdrop')!;
+    this.managerBalanceEl  = document.getElementById('mgr-balance-val')!;
     this.menuOverlayEl  = document.getElementById('menu-overlay')!;
     this.menuButtonsEl  = document.getElementById('menu-buttons')!;
     this.legendEl       = document.getElementById('legend')!;
-    this.backdropEl     = document.getElementById('store-backdrop')!;
+    this.dayReportEl    = document.getElementById('day-report')!;
 
     document.getElementById('btn-store')!.addEventListener('click', () => {
-      if (this.storeOpen) this.closeStore();
-      else this.openStore();
+      if (this.managerOpen) this.closeManager();
+      else this.openManager();
     });
 
     document.getElementById('btn-menu')!.addEventListener('click', () => {
       game.events.emit('go_menu');
     });
 
-    document.getElementById('store-close')!.addEventListener('click', () => this.closeStore());
+    document.getElementById('manager-close')!.addEventListener('click', () => this.closeManager());
+    this.managerBackdropEl.addEventListener('click', () => this.closeManager());
 
-    this.backdropEl.addEventListener('click', () => this.closeStore());
-
-    touchControls.init();
-
-    document.querySelectorAll('.sp-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const id = (tab as HTMLElement).dataset.tab as StoreTab;
-        this.activeTab = id;
-        document.querySelectorAll('.sp-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.refreshStore();
+    document.querySelectorAll('.mgr-nav-item').forEach(navItem => {
+      navItem.addEventListener('click', () => {
+        this.switchSection((navItem as HTMLElement).dataset.section as ManagerSection);
       });
     });
+
+    touchControls.init();
   }
 
   // ── VISIBILITY ─────────────────────────────────────────────────
@@ -384,7 +429,112 @@ class UIOverlay {
     this.hudEl.classList.add('hidden');
     this.ordersEl.classList.add('hidden');
     this.legendEl.classList.add('hidden');
-    this.closeStore(true);
+    this.closeManager(true);
+  }
+
+  showDayReport(data: DayReportData): void {
+    this.drBookings = data.bookings;
+    this.drMoney = data.money;
+    this.drTierLevel = data.tierLevel;
+    this.dayReportEl.classList.remove('hidden');
+    requestAnimationFrame(() => this.dayReportEl.classList.add('visible'));
+    this.renderDayReport(data);
+    const nextDayBtn = document.getElementById('dr-next-day')! as HTMLButtonElement;
+    nextDayBtn.disabled = false;
+    nextDayBtn.onclick = () => {
+      nextDayBtn.disabled = true;
+      this.game?.events.emit('game_event', { type: 'next_day' });
+    };
+  }
+
+  hideDayReport(): void {
+    this.dayReportEl.classList.remove('visible');
+    this.dayReportEl.classList.add('hidden');
+  }
+
+  refreshDayReport(money: number, bookings: number): void {
+    this.drMoney = money;
+    this.drBookings = bookings;
+    if (this.drTierLevel >= 4) this.renderDrBookings(money, bookings);
+  }
+
+  private renderDayReport(d: DayReportData): void {
+    document.getElementById('dr-title')!.textContent = `Day ${d.day} Complete!`;
+
+    document.getElementById('dr-stats')!.innerHTML = `
+      <div class="dr-stat">
+        <div class="dr-stat-label">Served</div>
+        <div class="dr-stat-val green">${d.servedToday}</div>
+      </div>
+      <div class="dr-stat">
+        <div class="dr-stat-label">Earned</div>
+        <div class="dr-stat-val gold">${d.revenueToday} ✦</div>
+      </div>
+      <div class="dr-stat">
+        <div class="dr-stat-label">Reputation</div>
+        <div class="dr-stat-val">${d.reputation} / 100</div>
+      </div>
+      <div class="dr-stat">
+        <div class="dr-stat-label">Cat Happiness</div>
+        <div class="dr-stat-val pink">${Math.round(d.avgCatHappiness)}%</div>
+      </div>
+      <div class="dr-stat" style="grid-column:1/-1">
+        <div class="dr-stat-label">Balance</div>
+        <div class="dr-stat-val gold" style="font-size:calc(20px * var(--gs))">${d.money} ✦</div>
+      </div>`;
+
+    this.renderDrChart(d);
+
+    const bookSection = document.getElementById('dr-bookings-section')!;
+    if (d.tierLevel >= 4) {
+      bookSection.innerHTML = '<div class="dr-sep" style="margin-bottom:calc(12px * var(--gs))"></div><div id="dr-bookings-inner"></div>';
+      this.renderDrBookings(d.money, d.bookings);
+    } else {
+      bookSection.innerHTML = '';
+    }
+  }
+
+  private renderDrChart(d: DayReportData): void {
+    const section = document.getElementById('dr-chart-section')!;
+    const history = d.popularityHistory;
+    if (history.length === 0) { section.innerHTML = ''; return; }
+    const maxServed = Math.max(1, ...history.map(h => h.served));
+    const bars = history.map(h => {
+      const pct = Math.max(5, Math.round(h.served / maxServed * 100));
+      const isCurrent = h.day === d.day;
+      const color = isCurrent ? '#f0c018' : h.served >= maxServed * 0.7 ? '#55cc55' : h.served >= maxServed * 0.4 ? '#ffaa44' : '#556688';
+      return `
+        <div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:3px;min-width:0">
+          <div class="dr-bar" style="width:100%;height:${pct}%;background:${color};opacity:${isCurrent ? 1 : 0.75}"></div>
+          <div style="font-size:calc(8px * var(--gs));color:${isCurrent ? 'var(--c-gold)' : 'var(--c-text-dim)'};font-family:'Space Mono',monospace;white-space:nowrap">${h.day}</div>
+        </div>`;
+    }).join('');
+    section.innerHTML = `
+      <div class="dr-section-title">Served per day</div>
+      <div style="display:flex;align-items:flex-end;gap:calc(4px * var(--gs));height:calc(52px * var(--gs));padding-bottom:calc(16px * var(--gs));position:relative">${bars}</div>`;
+  }
+
+  private renderDrBookings(money: number, bookings: number): void {
+    const BOOKING_COST = 25;
+    const MAX_BOOKINGS = 4;
+    const el = document.getElementById('dr-bookings-inner');
+    if (!el) return;
+    el.innerHTML = `
+      <div class="dr-section-title">Reservations for Tomorrow</div>
+      <div class="dr-bookings-row">
+        <div class="dr-book-info">
+          <div class="dr-book-count">${bookings}/${MAX_BOOKINGS} reserved (${BOOKING_COST}✦ each)</div>
+          <div class="dr-book-desc">${bookings > 0 ? `Booked guests arrive early · Cost: ${bookings * BOOKING_COST}✦` : 'No reservations — guests arrive normally'}</div>
+        </div>
+        <div class="dr-book-btns">
+          <button class="dr-book-btn" id="dr-book-minus" ${bookings <= 0 ? 'disabled' : ''}>−</button>
+          <button class="dr-book-btn" id="dr-book-plus"  ${bookings >= MAX_BOOKINGS || money < BOOKING_COST ? 'disabled' : ''}>+</button>
+        </div>
+      </div>`;
+    document.getElementById('dr-book-minus')!.onclick = () =>
+      this.game?.events.emit('game_event', { type: 'set_bookings', delta: -1 });
+    document.getElementById('dr-book-plus')!.onclick = () =>
+      this.game?.events.emit('game_event', { type: 'set_bookings', delta: +1 });
   }
 
   showMenu(hasSave: boolean, onStart: () => void, onNew: () => void): void {
@@ -426,37 +576,155 @@ class UIOverlay {
     return btn;
   }
 
-  // ── STORE ───────────────────────────────────────────────────────
+  // ── MANAGER ────────────────────────────────────────────────────
 
-  isStoreOpen(): boolean { return this.storeOpen; }
+  isStoreOpen(): boolean { return this.managerOpen; }
 
-  openStore(silent = false): void {
-    if (this.storeOpen) return;
-    this.storeOpen = true;
-    this.storePanelEl.classList.add('open');
-    this.backdropEl.style.display = 'block';
+  openStore(silent = false): void { this.openManager(silent); }
+  closeStore(silent = false): void { this.closeManager(silent); }
+
+  openManager(silent = false): void {
+    if (this.managerOpen) return;
+    this.managerOpen = true;
+    this.managerPanelEl.classList.add('open');
+    this.managerBackdropEl.style.display = 'block';
     if (!silent) this.game?.events.emit('game_event', { type: 'open_store_panel' });
-    this.refreshStore();
+    this.refreshManager();
   }
 
-  closeStore(silent = false): void {
-    if (!this.storeOpen) return;
-    this.storeOpen = false;
-    this.storePanelEl.classList.remove('open');
-    this.backdropEl.style.display = 'none';
+  closeManager(silent = false): void {
+    if (!this.managerOpen) return;
+    this.managerOpen = false;
+    this.managerPanelEl.classList.remove('open');
+    this.managerBackdropEl.style.display = 'none';
     if (!silent) this.game?.events.emit('game_event', { type: 'close_store_panel' });
   }
 
-  private refreshStore(): void {
-    if (!this.storeOpen || !this.lastState) return;
+  private switchSection(section: ManagerSection): void {
+    this.activeSection = section;
+    document.querySelectorAll('.mgr-nav-item').forEach(el => {
+      (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.section === section);
+    });
+    this.refreshManager();
+  }
+
+  private refreshManager(): void {
+    if (!this.managerOpen || !this.lastState) return;
     const s = this.lastState;
-    switch (this.activeTab) {
-      case 'furnish': this.renderFurnish(s); break;
-      case 'kitchen': this.renderKitchen(s); break;
-      case 'staff':   this.renderStaff(s);   break;
-      case 'menu':    this.renderMenu(s);     break;
+    switch (this.activeSection) {
+      case 'overview': this.renderOverview(s); break;
+      case 'furnish':  this.renderFurnish(s);  break;
+      case 'kitchen':  this.renderKitchen(s);  break;
+      case 'staff':    this.renderStaff(s);    break;
+      case 'menu':     this.renderMenu(s);     break;
     }
   }
+
+  // ── OVERVIEW ───────────────────────────────────────────────────
+
+  private renderOverview(s: UIState): void {
+    const tier = s.tierLevel ?? 1;
+    const ambiance = s.ambiance ?? 0;
+    const nextTier = CAFE_TIERS.find(t => t.level === tier + 1);
+
+    let html = '';
+
+    // Tier progress
+    if (nextTier) {
+      const pct = Math.min(1, ambiance / nextTier.ambianceRequired);
+      html += `
+        <div class="sp-tier-card">
+          <div class="sp-tier-row">
+            <span class="sp-tier-cur">${s.tierName ?? 'Tier ' + tier}</span>
+            <span class="sp-tier-arrow">&#8594;</span>
+            <span class="sp-tier-nxt">${nextTier.name}</span>
+          </div>
+          <div class="sp-tier-bar-track">
+            <div class="sp-tier-bar-fill" style="width:${pct * 100}%"></div>
+          </div>
+          <div class="sp-tier-hint">${ambiance} / ${nextTier.ambianceRequired} ambiance &mdash; place decorations to upgrade</div>
+        </div>`;
+    } else {
+      html += `<div class="sp-tier-card sp-tier-maxed">&#9733; Max tier reached: ${s.tierName ?? ''}</div>`;
+    }
+
+    // Summary grid
+    html += `<div class="ov-grid">`;
+
+    // ── Staff card
+    html += `<div class="ov-card">`;
+    html += `<div class="ov-card-title">Staff</div>`;
+    const visibleStaff = EMPLOYEE_TYPES.filter(e => !e.minTier || e.minTier <= tier);
+    if (visibleStaff.length === 0) {
+      html += `<div class="ov-empty-hint">Upgrade café to unlock staff.</div>`;
+    } else {
+      visibleStaff.forEach(emp => {
+        const count = this.getCount(s, emp.role);
+        html += `
+          <div class="ov-role-row">
+            <div class="ov-role-icon">${ROLE_ICONS[emp.role]}</div>
+            <div class="ov-role-info">
+              <div class="ov-role-name">${emp.name}</div>
+              <div class="ov-role-count">${count}/${emp.max} hired</div>
+            </div>
+          </div>`;
+      });
+    }
+    html += `<div class="ov-card-manage" data-goto-section="staff">Hire staff &#8594;</div>`;
+    html += `</div>`;
+
+    // ── Kitchen card
+    html += `<div class="ov-card">`;
+    html += `<div class="ov-card-title">Kitchen</div>`;
+    const ownedMachines = new Set(s.ownedMachines ?? ['espresso_machine']);
+    MACHINE_DEFS.forEach(def => {
+      const isOwned = ownedMachines.has(def.id);
+      html += `
+        <div class="ov-equip-row">
+          <div class="ov-equip-check ${isOwned ? 'owned' : 'missing'}">${isOwned ? '&#10003;' : '&#8729;'}</div>
+          <span style="color:${isOwned ? 'var(--c-text)' : 'var(--c-text-dim)'};opacity:${isOwned ? 1 : 0.45}">${def.name}</span>
+        </div>`;
+    });
+    html += `<div class="ov-card-manage" data-goto-section="kitchen">Upgrade kitchen &#8594;</div>`;
+    html += `</div>`;
+
+    // ── Menu card
+    html += `<div class="ov-card">`;
+    html += `<div class="ov-card-title">Today&apos;s Menu</div>`;
+    const dailyIds = new Set<string>(s.dailyMenuIds ?? s.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
+    type RichItem = { id: string; name: string };
+    const allItems = MENU_ITEMS as unknown as RichItem[];
+    const onMenu = allItems.filter(i => dailyIds.has(i.id));
+    const MAX_SHOW = 4;
+    onMenu.slice(0, MAX_SHOW).forEach(item => {
+      const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
+      html += `
+        <div class="ov-menu-item">
+          <div class="ov-food-icon">${icon}</div>
+          <div class="ov-food-name">${item.name}</div>
+        </div>`;
+    });
+    if (onMenu.length > MAX_SHOW) {
+      html += `<div style="font-size:calc(10px * var(--gs));color:var(--c-text-dim);font-family:'Space Mono',monospace;margin-top:calc(4px * var(--gs))">+${onMenu.length - MAX_SHOW} more</div>`;
+    }
+    if (onMenu.length === 0) {
+      html += `<div class="ov-empty-hint">No items on today&apos;s menu.</div>`;
+    }
+    html += `<div class="ov-card-manage" data-goto-section="menu">Edit menu &#8594;</div>`;
+    html += `</div>`;
+
+    html += `</div>`; // end ov-grid
+
+    this.managerContentEl.innerHTML = html;
+
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-goto-section]').forEach(el => {
+      el.addEventListener('click', () => {
+        this.switchSection(el.dataset.gotoSection as ManagerSection);
+      });
+    });
+  }
+
+  // ── FURNISH ────────────────────────────────────────────────────
 
   private renderFurnish(s: UIState): void {
     const cats: DecorationCategory[] = ['seating', 'furniture', 'lighting', 'plants', 'wallDecor', 'specialty'];
@@ -467,7 +735,6 @@ class UIOverlay {
     const tier = s.tierLevel ?? 1;
     const ambiance = s.ambiance ?? 0;
 
-    // Tier progress banner
     const nextTier = CAFE_TIERS.find(t => t.level === tier + 1);
     let html = '';
     if (nextTier) {
@@ -522,9 +789,9 @@ class UIOverlay {
       });
     }
 
-    this.storeContentEl.innerHTML = html;
+    this.managerContentEl.innerHTML = html;
 
-    this.storeContentEl.querySelectorAll('.sp-subtab').forEach(el => {
+    this.managerContentEl.querySelectorAll('.sp-subtab').forEach(el => {
       (el as HTMLElement).addEventListener('click', () => {
         this.activeFurnishTab = (el as HTMLElement).dataset.subtab as DecorationCategory;
         this.renderFurnish(s);
@@ -535,38 +802,22 @@ class UIOverlay {
   }
 
   private renderKitchen(s: UIState): void {
-    const owned = new Set(s.ownedStations ?? ['coffee']);
-    const hasMachines = (s.extraMachines ?? 0) >= 1;
+    const owned = new Set(s.ownedMachines ?? ['espresso_machine']);
     let html = '';
 
-    const hasStove = owned.has('stove');
-    html += this.itemCard({
-      icon: ITEM_ICONS['obj_stove'],
-      name: 'Stove',
-      desc: 'Cook hot food like Lunar Pancakes & Fondue',
-      cost: 100, can: !hasStove && s.money >= 100, owned: hasStove,
-      attr: `data-buy-kitchen="stove"`, btnLabel: 'Buy',
+    MACHINE_DEFS.forEach(def => {
+      if (def.starter) return;
+      const isOwned = owned.has(def.id);
+      const can = !isOwned && (s.money ?? 0) >= def.cost;
+      const icon = ITEM_ICONS[def.texKey] ?? ITEM_ICONS['obj_coffee_machine'];
+      html += this.itemCard({
+        icon, name: def.name, desc: def.desc,
+        cost: def.cost, can, owned: isOwned,
+        attr: `data-buy-machine="${def.id}"`, btnLabel: 'Buy',
+      });
     });
 
-    const hasPrep = owned.has('prep');
-    html += this.itemCard({
-      icon: ITEM_ICONS['obj_prep_counter'],
-      name: 'Prep Counter',
-      desc: 'Prepare cold dishes like Stardust Cookies',
-      cost: 80, can: !hasPrep && s.money >= 80, owned: hasPrep,
-      attr: `data-buy-kitchen="prep"`, btnLabel: 'Buy',
-    });
-
-    const canMachines = !hasMachines && s.money >= 180;
-    html += this.itemCard({
-      icon: ITEM_ICONS['obj_coffee_machine'],
-      name: 'Extra Machines',
-      desc: '+1 of each owned station · parallel cooking',
-      cost: 180, can: canMachines, owned: hasMachines,
-      attr: `data-buy-kitchen="extra_machines"`, btnLabel: 'Buy',
-    });
-
-    this.storeContentEl.innerHTML = html;
+    this.managerContentEl.innerHTML = html;
     this.attachListeners();
   }
 
@@ -600,7 +851,7 @@ class UIOverlay {
       </p>`;
     }
 
-    this.storeContentEl.innerHTML = html;
+    this.managerContentEl.innerHTML = html;
     this.attachListeners();
   }
 
@@ -611,13 +862,14 @@ class UIOverlay {
     const owned = new Set<string>(s.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
     const daily = new Set<string>(s.dailyMenuIds ?? owned);
     const money = s.money ?? 0;
+    const ownedMachines = new Set<string>(s.ownedMachines ?? ['espresso_machine']);
 
-    type RichItem = { id: string; name: string; price: number; prepTime: number; station: string; recipeCost: number; description?: string };
+    type RichItem = { id: string; name: string; price: number; prepTime: number; machines: string[]; recipeCost: number; description?: string };
     const allItems = MENU_ITEMS as unknown as RichItem[];
 
     let html = '';
 
-    // ── On today's menu ──────────────────────────────────────────
+    // ── On today's menu
     const onMenu = allItems.filter(i => daily.has(i.id));
     if (onMenu.length > 0) {
       html += `<p class="sp-meta" style="margin-bottom:6px">Serving today &mdash; toggle to remove from today&apos;s menu.</p>`;
@@ -630,7 +882,7 @@ class UIOverlay {
             <div class="si-icon">${icon}</div>
             <div class="si-info">
               <div class="si-name">${item.name} <span style="font-size:0.75em;color:#44bb66;font-weight:400">● Serving</span></div>
-              <div class="si-desc">${STATION_LABELS[item.station] ?? item.station} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
+              <div class="si-desc">${machineLabel(item.machines)} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
             </div>
             <div class="si-right">
               <button class="si-btn${canRemove ? '' : ' disabled'}"${canRemove ? '' : ' disabled'}${canRemove ? '' : ' title="Need at least one item on the menu"'} data-toggle-recipe="${item.id}" style="font-size:0.85em">Remove</button>
@@ -639,7 +891,7 @@ class UIOverlay {
       });
     }
 
-    // ── Owned but off menu ────────────────────────────────────────
+    // ── Owned but off menu
     const offMenu = allItems.filter(i => owned.has(i.id) && !daily.has(i.id));
     if (offMenu.length > 0) {
       html += `<p class="sp-meta" style="margin-top:12px;margin-bottom:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
@@ -652,7 +904,7 @@ class UIOverlay {
             <div class="si-icon" style="opacity:0.55">${icon}</div>
             <div class="si-info">
               <div class="si-name" style="opacity:0.75">${item.name}</div>
-              <div class="si-desc">${STATION_LABELS[item.station] ?? item.station} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
+              <div class="si-desc">${machineLabel(item.machines)} &middot; ${prepSec}s &middot; ${item.price} ✦</div>
             </div>
             <div class="si-right">
               <button class="si-btn" data-toggle-recipe="${item.id}" style="font-size:0.85em">Add today</button>
@@ -661,8 +913,8 @@ class UIOverlay {
       });
     }
 
-    // ── Buyable (tier-unlocked, not yet owned) ────────────────────
-    const buyable = allItems.filter(i => tierUnlocked.has(i.id) && !owned.has(i.id));
+    // ── Buyable (tier-unlocked, all machines owned, not yet owned)
+    const buyable = allItems.filter(i => tierUnlocked.has(i.id) && !owned.has(i.id) && i.machines.every(m => ownedMachines.has(m)));
     if (buyable.length > 0) {
       html += `<p class="sp-meta" style="margin-top:12px;margin-bottom:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
         Available to learn.</p>`;
@@ -685,14 +937,36 @@ class UIOverlay {
       });
     }
 
-    // ── Tier-locked ───────────────────────────────────────────────
+    // ── Machine-locked (tier-unlocked but missing a required machine)
+    const machineLocked = allItems.filter(i => tierUnlocked.has(i.id) && !owned.has(i.id) && !i.machines.every(m => ownedMachines.has(m)));
+    if (machineLocked.length > 0) {
+      html += `<p class="sp-meta" style="margin-top:12px;margin-bottom:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
+        Requires machines you don&apos;t own yet.</p>`;
+      machineLocked.forEach(item => {
+        const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
+        const missing = item.machines.filter(m => !ownedMachines.has(m)).map(machineName).join(', ');
+        html += `
+          <div class="si">
+            <div class="si-icon" style="opacity:0.35">${icon}</div>
+            <div class="si-info">
+              <div class="si-name" style="opacity:0.5">${item.name}</div>
+              <div class="si-desc" style="opacity:0.6">Needs: ${missing}</div>
+            </div>
+            <div class="si-right">
+              <button class="si-btn disabled" disabled>Locked</button>
+            </div>
+          </div>`;
+      });
+    }
+
+    // ── Tier-locked
     const tierLocked = allItems.filter(i => !tierUnlocked.has(i.id));
     if (tierLocked.length > 0) {
       html += `<p class="sp-meta" style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">
         ${tierLocked.length} more recipe${tierLocked.length > 1 ? 's' : ''} unlock as your café upgrades.</p>`;
     }
 
-    this.storeContentEl.innerHTML = html;
+    this.managerContentEl.innerHTML = html;
     this.attachListeners();
   }
 
@@ -721,31 +995,31 @@ class UIOverlay {
   }
 
   private attachListeners(): void {
-    this.storeContentEl.querySelectorAll<HTMLElement>('[data-buy-kitchen]').forEach(btn => {
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-machine]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.game?.events.emit('game_event', { type: 'buy_kitchen', upgradeId: btn.dataset.buyKitchen });
+        this.game?.events.emit('game_event', { type: 'buy_machine', machineId: btn.dataset.buyMachine });
       });
     });
-    this.storeContentEl.querySelectorAll<HTMLElement>('[data-hire-staff]').forEach(btn => {
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-hire-staff]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.game?.events.emit('game_event', { type: 'hire_staff', role: btn.dataset.hireStaff as EmployeeRole });
       });
     });
-    this.storeContentEl.querySelectorAll<HTMLElement>('[data-place-decor]').forEach(btn => {
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-place-decor]').forEach(btn => {
       btn.addEventListener('click', () => {
         const defId = btn.dataset.placeDecor;
-        this.closeStore();
+        this.closeManager();
         setTimeout(() => {
           this.game?.events.emit('game_event', { type: 'start_placement', defId });
         }, 0);
       });
     });
-    this.storeContentEl.querySelectorAll<HTMLElement>('[data-buy-recipe]').forEach(btn => {
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-recipe]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.game?.events.emit('game_event', { type: 'buy_recipe', itemId: btn.dataset.buyRecipe });
       });
     });
-    this.storeContentEl.querySelectorAll<HTMLElement>('[data-toggle-recipe]').forEach(btn => {
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-toggle-recipe]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.game?.events.emit('game_event', { type: 'toggle_daily_recipe', itemId: btn.dataset.toggleRecipe });
       });
@@ -773,6 +1047,7 @@ class UIOverlay {
       this.prevMoney = state.money;
     }
     this.moneyEl.textContent = String(state.money);
+    this.managerBalanceEl.textContent = String(state.money);
 
     if (state.reputation !== this.prevRep) {
       this.repEl.style.color = state.reputation > this.prevRep ? '#FFE566' : '#FF6644';
@@ -812,7 +1087,7 @@ class UIOverlay {
 
     this.renderOrders(state.orders ?? []);
 
-    if (this.storeOpen) this.refreshStore();
+    if (this.managerOpen) this.refreshManager();
   }
 
   // ── ORDERS ──────────────────────────────────────────────────────

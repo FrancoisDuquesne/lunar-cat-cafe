@@ -270,6 +270,69 @@ export function createPrepCounterTexture(scene: Phaser.Scene): void {
   gen(scene, g, 'obj_prep_counter', W, H);
 }
 
+export function createGriddleTexture(scene: Phaser.Scene): void {
+  const g = makeGraphics(scene);
+  const W = 28, H = 28;
+  // Cast-iron body
+  g.fillStyle(0x2A1A0A, 1); g.fillRoundedRect(2, 6, W-4, H-10, 3);
+  // Hot surface — dark orange glow
+  g.fillStyle(0x8B3A10, 1); g.fillRoundedRect(4, 8, W-8, H-14, 2);
+  g.fillStyle(0xB04A18, 1); g.fillRoundedRect(5, 9, W-10, H-16, 2);
+  // Heat ring marks (pancake circles)
+  g.lineStyle(1, 0xFF7722, 0.5);
+  g.strokeCircle(10, 14, 4); g.strokeCircle(18, 14, 4);
+  // Handle
+  g.fillStyle(0x1A0A00, 1); g.fillRoundedRect(10, 2, 8, 5, 2);
+  g.fillStyle(0xD4A820, 1); g.fillRect(11, 3, 6, 1);
+  // Gold trim
+  g.fillStyle(0xD4A820, 1); g.fillRect(2, 6, W-4, 2);
+  ol(g, 2); g.strokeRoundedRect(2, 6, W-4, H-10, 3);
+  gen(scene, g, 'obj_griddle', W, H);
+}
+
+export function createMixerTexture(scene: Phaser.Scene): void {
+  const g = makeGraphics(scene);
+  const W = 28, H = 28;
+  // Bowl base
+  g.fillStyle(0xC0C8D8, 1); g.fillRoundedRect(4, 16, W-8, 8, 3);
+  g.fillStyle(0xD8E0F0, 1); g.fillRect(5, 17, W-10, 3);
+  // Stand arm
+  g.fillStyle(0x8090A8, 1); g.fillRoundedRect(11, 8, 6, 10, 2);
+  g.fillStyle(0x9AAABB, 1); g.fillRect(12, 9, 3, 7);
+  // Motor head
+  g.fillStyle(0x6A8090, 1); g.fillRoundedRect(8, 4, 12, 7, 3);
+  g.fillStyle(0x7A90A0, 1); g.fillRect(9, 5, 10, 3);
+  // Whisk attachment
+  g.fillStyle(0xD4A820, 1); g.fillRoundedRect(13, 14, 2, 5, 1);
+  g.lineStyle(1, 0xD4A820, 1);
+  g.lineBetween(12, 16, 15, 19); g.lineBetween(15, 16, 12, 19);
+  // Gold trim
+  g.fillStyle(0xD4A820, 1); g.fillRect(4, 16, W-8, 2);
+  ol(g, 2); g.strokeRoundedRect(4, 16, W-8, 8, 3);
+  gen(scene, g, 'obj_mixer', W, H);
+}
+
+export function createOvenTexture(scene: Phaser.Scene): void {
+  const g = makeGraphics(scene);
+  const W = 28, H = 28;
+  // Body
+  g.fillStyle(0x2A2A3A, 1); g.fillRoundedRect(2, 3, W-4, H-6, 3);
+  g.fillStyle(0x3A3A4A, 1); g.fillRect(4, 5, 6, H-12);
+  // Door frame
+  g.fillStyle(0x1A1A28, 1); g.fillRoundedRect(5, 6, W-10, H-12, 2);
+  // Door window — orange glow from heat
+  g.fillStyle(0x3A1800, 1); g.fillRoundedRect(7, 8, W-14, H-16, 2);
+  g.fillStyle(0xFF6600, 0.35); g.fillRoundedRect(7, 8, W-14, H-16, 2);
+  g.fillStyle(0xFF8800, 0.2); g.fillRect(8, 9, W-18, 3);
+  // Handle
+  g.fillStyle(0xD4A820, 1); g.fillRoundedRect(8, H-6, W-16, 3, 1);
+  // Top vents
+  g.fillStyle(0xD4A820, 1);
+  [10, 14, 18].forEach(x => g.fillRect(x, 3, 1, 3));
+  ol(g, 2); g.strokeRoundedRect(2, 3, W-4, H-6, 3);
+  gen(scene, g, 'obj_oven', W, H);
+}
+
 export function createTrashCanTexture(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
   const W = 20, H = 26;
@@ -1191,6 +1254,9 @@ export function createAllTextures(scene: Phaser.Scene): void {
   createCoffeeMachineTexture(scene);
   createStoveTexture(scene);
   createPrepCounterTexture(scene);
+  createGriddleTexture(scene);
+  createMixerTexture(scene);
+  createOvenTexture(scene);
   createCatBedTexture(scene);
   createPlantTexture(scene);
   createFoodBowlTexture(scene);

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { BaseCharacter } from './BaseCharacter';
 
 type EmpAIState = 'idle' | 'going_to_customer' | 'going_to_station' | 'delivering_food';
 
@@ -11,7 +12,7 @@ export interface ReadyStation {
   customerY: number;
 }
 
-export class Employee extends Phaser.Physics.Arcade.Sprite {
+export class Employee extends BaseCharacter {
   readonly employeeId: number;
   readonly employeeName: string;
 
@@ -29,21 +30,12 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
   private targetStationId: number | null = null;
   private foodCarrySprite?: Phaser.GameObjects.Sprite;
 
-  // Pathfinding
-  pathFinder?: (fx: number, fy: number, tx: number, ty: number) => Array<{x: number; y: number}>;
-  private navPath: Array<{x: number; y: number}> = [];
-  private stuckTimer = 0;
-  private lastX = 0;
-  private lastY = 0;
-
   onTakeOrder?: (customerId: number) => void;
   onPickupFood?: (stationId: number) => string | null;
   onDeliverFood?: (customerId: number, itemId: string) => void;
 
   constructor(scene: Phaser.Scene, x: number, y: number, id: number, name: string) {
     super(scene, x, y, 'player_employee');
-    scene.add.existing(this);
-    scene.physics.add.existing(this);
 
     this.employeeId = id;
     this.employeeName = name;
@@ -61,65 +53,6 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
 
     this.wanderX = x;
     this.wanderY = y;
-    this.lastX = x;
-    this.lastY = y;
-  }
-
-  // ── Navigation helpers ─────────────────────────────────────────────────
-
-  private startNav(tx: number, ty: number): void {
-    if (this.pathFinder) {
-      const path = this.pathFinder(this.x, this.y, tx, ty);
-      this.navPath = path.length > 0 ? path : [{ x: tx, y: ty }];
-    } else {
-      this.navPath = [{ x: tx, y: ty }];
-    }
-    this.stuckTimer = 0;
-    this.lastX = this.x;
-    this.lastY = this.y;
-  }
-
-  // Move along navPath toward (finalX, finalY). Returns true when within arrivalDist.
-  private followPath(delta: number, speed: number, finalX: number, finalY: number, arrivalDist: number): boolean {
-    const fdx = finalX - this.x;
-    const fdy = finalY - this.y;
-    if (Math.sqrt(fdx * fdx + fdy * fdy) < arrivalDist) {
-      (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
-      this.navPath = [];
-      return true;
-    }
-
-    // Advance past waypoints we've reached
-    while (this.navPath.length > 1) {
-      const wp = this.navPath[0];
-      const wx = wp.x - this.x, wy = wp.y - this.y;
-      if (Math.sqrt(wx * wx + wy * wy) < 16) {
-        this.navPath.shift();
-      } else {
-        break;
-      }
-    }
-
-    const target = this.navPath[0] ?? { x: finalX, y: finalY };
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    (this.body as Phaser.Physics.Arcade.Body).setVelocity((dx / dist) * speed, (dy / dist) * speed);
-
-    // Stuck detection: if we haven't moved 4px in 1.5s, recompute the path
-    this.stuckTimer += delta;
-    if (this.stuckTimer > 1500) {
-      const moved = Math.sqrt((this.x - this.lastX) ** 2 + (this.y - this.lastY) ** 2);
-      if (moved < 4) {
-        this.startNav(finalX, finalY);
-      } else {
-        this.lastX = this.x;
-        this.lastY = this.y;
-      }
-      this.stuckTimer = 0;
-    }
-
-    return false;
   }
 
   // ── Main update ────────────────────────────────────────────────────────
@@ -153,30 +86,31 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
         const wy = this.wanderY - this.y;
         const wd = Math.sqrt(wx * wx + wy * wy) || 1;
         if (wd > 8) {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity((wx / wd) * 40, (wy / wd) * 40);
+          this.setVel((wx / wd) * 40, (wy / wd) * 40);
         } else {
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+          this.setVel(0, 0);
         }
 
         if (this.idleTimer <= 0) {
           this.idleTimer = 1500;
-          const orderTarget = waitingCustomers.find(c => !assignedIds.has(c.customerId));
-          if (orderTarget) {
-            this.targetCustomerId = orderTarget.customerId;
-            this.targetX = orderTarget.x;
-            this.targetY = orderTarget.y;
-            this.aiState = 'going_to_customer';
-            assignedIds.add(orderTarget.customerId);
+          // Deliver ready food first — a waiting customer drains patience faster than one waiting to order
+          const station = readyStations.find(s => !stationDeliveryIds.has(s.customerId));
+          if (station) {
+            this.targetStationId = station.stationId;
+            this.targetCustomerId = station.customerId;
+            this.targetX = station.stationX;
+            this.targetY = station.stationY;
+            this.aiState = 'going_to_station';
+            stationDeliveryIds.add(station.customerId);
             this.startNav(this.targetX, this.targetY);
           } else {
-            const station = readyStations.find(s => !stationDeliveryIds.has(s.customerId));
-            if (station) {
-              this.targetStationId = station.stationId;
-              this.targetCustomerId = station.customerId;
-              this.targetX = station.stationX;
-              this.targetY = station.stationY;
-              this.aiState = 'going_to_station';
-              stationDeliveryIds.add(station.customerId);
+            const orderTarget = waitingCustomers.find(c => !assignedIds.has(c.customerId));
+            if (orderTarget) {
+              this.targetCustomerId = orderTarget.customerId;
+              this.targetX = orderTarget.x;
+              this.targetY = orderTarget.y;
+              this.aiState = 'going_to_customer';
+              assignedIds.add(orderTarget.customerId);
               this.startNav(this.targetX, this.targetY);
             }
           }
@@ -191,11 +125,10 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.targetCustomerId = null;
           this.aiState = 'idle';
           this.idleTimer = 1000;
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+          this.setVel(0, 0);
           break;
         }
 
-        // Re-target if customer moved significantly (shouldn't happen when seated, but just in case)
         if (Math.abs(still.x - this.targetX) > 8 || Math.abs(still.y - this.targetY) > 8) {
           this.targetX = still.x;
           this.targetY = still.y;
@@ -226,7 +159,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.targetStationId = null;
           this.aiState = 'idle';
           this.idleTimer = 500;
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+          this.setVel(0, 0);
           break;
         }
 
@@ -271,7 +204,7 @@ export class Employee extends Phaser.Physics.Arcade.Sprite {
           this.aiState = 'idle';
           this.idleTimer = 2000;
           this.wanderTimer = 0;
-          (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+          this.setVel(0, 0);
         }
         break;
       }

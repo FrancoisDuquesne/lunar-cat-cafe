@@ -1,11 +1,11 @@
-import { MenuId, PlacedDecoration } from './constants';
+import { MenuId, PlacedDecoration, EmployeeRole } from './constants';
 
 export interface MenuItemDef {
   id: MenuId;
   name: string;
   price: number;
   prepTime: number;
-  station: 'coffee' | 'stove' | 'prep';
+  machines: string[];   // required machine IDs; primary (cooking) machine is machines[0]
   recipeCost?: number;
   description?: string;
 }
@@ -37,22 +37,10 @@ export interface TableSlot {
   seats: TableSeat[];
 }
 
-export interface ActiveOrder {
-  customerId: number;
-  item: MenuItemDef;
-  takenByPlayer: boolean;
-  cooking: boolean;
-  cookProgress: number;
-  ready: boolean;
-  delivered: boolean;
-  waitMs: number;
-}
-
 export interface ShopState {
   catToys: number;
   catTrees: number;
-  employees: number;      // waiters (kept for backward compat)
-  extraMachines: number;
+  employees: number;
   placedDecorations: PlacedDecoration[];
   ownedTableSlotIds: number[];
   cooks: number;
@@ -61,6 +49,9 @@ export interface ShopState {
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
   bookings?: number;
+  ownedMachines?: string[];
+  // Legacy fields — kept for save migration only
+  extraMachines?: number;
   ownedStations?: string[];
 }
 
@@ -89,3 +80,17 @@ export interface InteractionContext {
   targetId?: number;
   stationId?: number;
 }
+
+// Typed command bus: UIOverlay → GameScene via game.events.emit('game_event', cmd)
+export type GameCommand =
+  | { type: 'start_placement'; defId: string }
+  | { type: 'close_store_panel' }
+  | { type: 'open_store_panel' }
+  | { type: 'buy_table'; slotId: number }
+  | { type: 'hire_staff'; role: EmployeeRole }
+  | { type: 'buy_machine'; machineId: string }
+  | { type: 'buy_recipe'; itemId: string }
+  | { type: 'toggle_daily_recipe'; itemId: string }
+  | { type: 'next_day' }
+  | { type: 'set_bookings'; delta: number }
+  | { type: 'tier_changed'; tierName: string; tierLevel: number };

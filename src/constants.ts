@@ -9,16 +9,40 @@ export const DAY_DURATION_MS = 300_000; // 5 minutes
 export const CUSTOMER_SPAWN_MS = 18_000; // base 18 seconds between spawns
 
 export const MENU_ITEMS = [
-  { id: 'moon_mocha',       name: 'Moon Mocha',         price: 18, prepTime: 10000, station: 'coffee', recipeCost: 0,   description: 'Dark-roasted beans from the Sea of Tranquility, with a hint of lunar mineral water. Rich, bold, and weightless.' },
-  { id: 'zerog_latte',      name: 'Zero-G Latte',       price: 14, prepTime: 8000,  station: 'coffee', recipeCost: 0,   description: 'Silky steamed milk in a sealed teal capsule — floats on the palate just like it floats in orbit.' },
-  { id: 'luna_pancakes',    name: 'Lunar Pancakes',     price: 22, prepTime: 18000, station: 'stove',  recipeCost: 40,  description: 'A golden stack of fluffy pancakes made with regolith-ground flour, topped with moon-butter and crater-berry syrup.' },
-  { id: 'star_cookies',     name: 'Stardust Cookies',   price: 12, prepTime: 14000, station: 'prep',   recipeCost: 30,  description: 'Crispy shortbread dusted with edible stardust and shaped into constellations. Best enjoyed with zero-gravity tea.' },
-  { id: 'lunar_fondue',     name: 'Lunar Fondue',       price: 32, prepTime: 22000, station: 'stove',  recipeCost: 80,  description: 'A bubbling pot of aged moon-cheese kept molten by a low-gravity flame. Served with asteroid bread chunks for dipping.' },
-  { id: 'nebula_risotto',   name: 'Nebula Risotto',     price: 48, prepTime: 28000, station: 'stove',  recipeCost: 140, description: 'Arborio rice slow-cooked in violet plasma broth and garnished with crystallised stardust. A cosmos on a plate.' },
-  { id: 'gravity_souffle',  name: 'Gravity Soufflé',   price: 68, prepTime: 35000, station: 'prep',   recipeCost: 220, description: 'A gravity-defying pastry that rises perfectly in 1/6th gravity. Crisp outside, impossibly airy within. Order soon — it collapses on re-entry.' },
+  { id: 'moon_mocha',      name: 'Moon Mocha',        price: 18, prepTime: 10000, machines: ['espresso_machine'],  recipeCost: 0,   description: 'Dark-roasted beans from the Sea of Tranquility, with a hint of lunar mineral water. Rich, bold, and weightless.' },
+  { id: 'zerog_latte',     name: 'Zero-G Latte',      price: 14, prepTime: 8000,  machines: ['espresso_machine'],  recipeCost: 0,   description: 'Silky steamed milk in a sealed teal capsule — floats on the palate just like it floats in orbit.' },
+  { id: 'luna_pancakes',   name: 'Lunar Pancakes',    price: 22, prepTime: 18000, machines: ['griddle'],           recipeCost: 40,  description: 'A golden stack of fluffy pancakes made with regolith-ground flour, topped with moon-butter and crater-berry syrup.' },
+  { id: 'star_cookies',    name: 'Stardust Cookies',  price: 12, prepTime: 14000, machines: ['mixer', 'oven'],     recipeCost: 30,  description: 'Crispy shortbread dusted with edible stardust and shaped into constellations. Best enjoyed with zero-gravity tea.' },
+  { id: 'lunar_fondue',    name: 'Lunar Fondue',       price: 32, prepTime: 22000, machines: ['stove'],             recipeCost: 80,  description: 'A bubbling pot of aged moon-cheese kept molten by a low-gravity flame. Served with asteroid bread chunks for dipping.' },
+  { id: 'nebula_risotto',  name: 'Nebula Risotto',    price: 48, prepTime: 28000, machines: ['stove'],             recipeCost: 140, description: 'Arborio rice slow-cooked in violet plasma broth and garnished with crystallised stardust. A cosmos on a plate.' },
+  { id: 'gravity_souffle', name: 'Gravity Soufflé',  price: 68, prepTime: 35000, machines: ['mixer', 'oven'],     recipeCost: 220, description: 'A gravity-defying pastry that rises perfectly in 1/6th gravity. Crisp outside, impossibly airy within. Order soon — it collapses on re-entry.' },
 ] as const;
 
 export type MenuId = typeof MENU_ITEMS[number]['id'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KITCHEN MACHINES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MachineDef {
+  id: string;
+  name: string;
+  cost: number;
+  col: number;
+  row: number;
+  texKey: string;
+  label: string;
+  desc: string;
+  starter?: boolean;
+}
+
+export const MACHINE_DEFS: MachineDef[] = [
+  { id: 'espresso_machine', name: 'Espresso Machine', cost: 0,   col: 11, row: 7, texKey: 'obj_coffee_machine', label: 'Espresso', desc: 'Pulls rich shots for all coffee drinks.',           starter: true },
+  { id: 'griddle',          name: 'Pancake Griddle',  cost: 80,  col: 13, row: 7, texKey: 'obj_griddle',        label: 'Griddle',  desc: 'Flat-iron cooking — pancakes and hot flatbreads.' },
+  { id: 'stove',            name: 'Gas Stove',        cost: 100, col: 15, row: 7, texKey: 'obj_stove',          label: 'Stove',    desc: 'Hot cooking — fondue, risotto, and rich sauces.' },
+  { id: 'mixer',            name: 'Stand Mixer',      cost: 120, col: 17, row: 7, texKey: 'obj_mixer',          label: 'Mixer',    desc: 'Mixes dough and batter. Pair with Oven to bake.' },
+  { id: 'oven',             name: 'Convection Oven',  cost: 160, col: 13, row: 8, texKey: 'obj_oven',           label: 'Oven',     desc: 'Bakes goods prepared by the Stand Mixer.' },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DECORATION SYSTEM
@@ -241,3 +265,10 @@ export const T = {
   DOOR:    5,
   KITCHEN: 6,
 } as const;
+
+// ─── GAMEPLAY TUNING CONSTANTS ────────────────────────────────────────────────
+export const INTERACTION_REACH = 52;       // px radius for E-prompt / scan
+export const PET_COOLDOWN_MS = 8000;       // ms between cat pets
+export const BOOKING_COST = 25;            // ✦ per booking slot
+export const MAX_BOOKINGS = 4;             // max pre-booked guests per day
+export const DECORATION_REFUND_RATIO = 0.5; // fraction refunded on removal

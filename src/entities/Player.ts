@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { PLAYER_SPEED } from '../constants';
 import { touchControls } from '../ui/TouchControls';
+import { BaseCharacter } from './BaseCharacter';
 
-export class Player extends Phaser.Physics.Arcade.Sprite {
+export class Player extends BaseCharacter {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: { up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key; left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key };
   private eKey!: Phaser.Input.Keyboard.Key;
@@ -17,18 +18,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private moveCallback?: () => void;
   private static readonly ARRIVE_DIST = 40;
 
-  // Stuck detection: give up if no movement for too long
-  private stuckTimer = 0;
-  private prevX = 0;
-  private prevY = 0;
-
   // One-shot interact callback; scene sets this
   onInteract?: () => void;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'player_down');
-    scene.add.existing(this);
-    scene.physics.add.existing(this);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setCircle(6, 2, 12); // circle slides around corners instead of snagging
@@ -58,8 +52,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.moveTargets = [...targets];
     this.moveCallback = callback;
     this.stuckTimer = 0;
-    this.prevX = this.x;
-    this.prevY = this.y;
+    this.lastX = this.x;
+    this.lastY = this.y;
   }
 
   clearMoveTargets(): void {
@@ -80,8 +74,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const tdy = touchControls.dy;
     const tActive = Math.abs(tdx) > 0.08 || Math.abs(tdy) > 0.08;
 
-    const body = this.body as Phaser.Physics.Arcade.Body;
-
     if (kActive || tActive) {
       // Manual input cancels auto-walk
       this.clearMoveTargets();
@@ -96,7 +88,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         vy = tdy * PLAYER_SPEED;
       }
 
-      body.setVelocity(vx, vy);
+      this.setVel(vx, vy);
       if      (vx < -0.1) { this.facing = 'left';  this.setTexture('player_side'); this.setFlipX(true);  }
       else if (vx >  0.1) { this.facing = 'right'; this.setTexture('player_side'); this.setFlipX(false); }
       else if (vy < -0.1) { this.facing = 'up';    this.setTexture('player_up');   this.setFlipX(false); }
@@ -115,7 +107,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
           cb?.();
         }
       } else {
-        body.setVelocity((dx / dist) * PLAYER_SPEED, (dy / dist) * PLAYER_SPEED);
+        this.setVel((dx / dist) * PLAYER_SPEED, (dy / dist) * PLAYER_SPEED);
         if (Math.abs(dx) > Math.abs(dy)) {
           this.facing = dx < 0 ? 'left' : 'right';
           this.setTexture('player_side');
@@ -127,18 +119,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         }
 
         // Give up if physically blocked for too long (obstacle in path)
-        const moved = (this.x - this.prevX) ** 2 + (this.y - this.prevY) ** 2;
+        const moved = (this.x - this.lastX) ** 2 + (this.y - this.lastY) ** 2;
         if (moved < 0.5) {
           this.stuckTimer += 16; // ~1 frame at 60fps; good enough without delta
           if (this.stuckTimer > 500) this.clearMoveTargets();
         } else {
           this.stuckTimer = 0;
         }
-        this.prevX = this.x;
-        this.prevY = this.y;
+        this.lastX = this.x;
+        this.lastY = this.y;
       }
     } else {
-      body.setVelocity(0, 0);
+      this.setVel(0, 0);
     }
 
     this.setDepth(10 + this.y / 1000);

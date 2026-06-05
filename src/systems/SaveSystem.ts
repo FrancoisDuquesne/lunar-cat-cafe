@@ -5,13 +5,13 @@ const SAVE_KEY = 'lunar_cat_cafe_v2';
 
 function freshShop(): ShopState {
   return {
-    catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
+    catToys: 0, catTrees: 0, employees: 0,
     placedDecorations: [],
     ownedTableSlotIds: [0, 1, 2],
     cooks: 0, guards: 0, caterers: 0,
     ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
     dailyMenuIds: ['moon_mocha', 'zerog_latte'],
-    ownedStations: ['coffee'],
+    ownedMachines: ['espresso_machine'],
   };
 }
 
@@ -58,7 +58,16 @@ export function loadGame(): GameSaveState | null {
     if (!state.shop.ownedRecipeIds) state.shop.ownedRecipeIds = ['moon_mocha', 'zerog_latte'];
     if (!state.shop.dailyMenuIds) state.shop.dailyMenuIds = [...state.shop.ownedRecipeIds];
     if (state.shop.bookings === undefined) state.shop.bookings = 0;
-    if (!state.shop.ownedStations) state.shop.ownedStations = ['coffee', 'stove', 'prep'];
+    if (!state.shop.ownedMachines) {
+      // Migrate from old ownedStations system
+      const stationToMachine: Record<string, string> = { coffee: 'espresso_machine', stove: 'stove', prep: 'mixer' };
+      const old = state.shop.ownedStations ?? ['coffee'];
+      state.shop.ownedMachines = old.map(s => stationToMachine[s] ?? s).filter(Boolean);
+      // If they had extra_machines, they had both stove + prep already — add oven too
+      if ((state.shop.extraMachines ?? 0) >= 1 && !state.shop.ownedMachines.includes('oven')) {
+        state.shop.ownedMachines.push('oven');
+      }
+    }
     if (!state.popularityHistory) state.popularityHistory = [];
     return state;
   } catch (e) {

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { uiOverlay, UIState } from '../ui/UIOverlay';
+import { uiOverlay, UIState, DayReportData } from '../ui/UIOverlay';
 
 export class UIScene extends Phaser.Scene {
   constructor() { super({ key: 'UIScene', active: false }); }
@@ -12,6 +12,14 @@ export class UIScene extends Phaser.Scene {
       uiOverlay.applyState(state);
     }, this);
 
+    this.game.events.on('show_day_report', (data: DayReportData) => {
+      uiOverlay.showDayReport(data);
+    }, this);
+
+    this.game.events.on('refresh_day_report', (data: { money: number; bookings: number }) => {
+      uiOverlay.refreshDayReport(data.money, data.bookings);
+    }, this);
+
     this.game.events.on('game_event', (evt: { type: string }) => {
       if (evt.type === 'open_store_panel') uiOverlay.openStore(true);
       else if (evt.type === 'close_store_panel') uiOverlay.closeStore(true);
@@ -19,7 +27,10 @@ export class UIScene extends Phaser.Scene {
 
     this.events.once('shutdown', () => {
       uiOverlay.hideHUD();
+      uiOverlay.hideDayReport();
       this.game.events.off('ui_update', undefined, this);
+      this.game.events.off('show_day_report', undefined, this);
+      this.game.events.off('refresh_day_report', undefined, this);
       this.game.events.off('game_event', undefined, this);
     }, this);
   }

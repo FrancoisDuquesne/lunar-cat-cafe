@@ -7,6 +7,7 @@ const SQRT2 = 1.4142135623730951;
 
 export class Pathfinder {
   private readonly walkable: Uint8Array; // 1 = passable, 0 = blocked
+  private readonly originalWalkable: Uint8Array; // baseline from map (no furniture)
   private readonly cols: number;
   private readonly rows: number;
   private readonly T: number; // tile size in pixels
@@ -19,6 +20,7 @@ export class Pathfinder {
     for (let r = 0; r < this.rows; r++)
       for (let c = 0; c < this.cols; c++)
         this.walkable[r * this.cols + c] = walkableTileTypes.has(map[r][c]) ? 1 : 0;
+    this.originalWalkable = new Uint8Array(this.walkable);
   }
 
   /** Mark a world-space body rectangle (top-left origin) as non-walkable. */
@@ -30,6 +32,19 @@ export class Pathfinder {
     for (let r = r0; r <= r1; r++)
       for (let c = c0; c <= c1; c++)
         this.walkable[r * this.cols + c] = 0;
+  }
+
+  /** Restore world-space rectangle to its original map walkability (removes a furniture block). */
+  unblockRect(left: number, top: number, w: number, h: number): void {
+    const c0 = Math.max(0, Math.floor(left / this.T));
+    const c1 = Math.min(this.cols - 1, Math.floor((left + w - 1) / this.T));
+    const r0 = Math.max(0, Math.floor(top / this.T));
+    const r1 = Math.min(this.rows - 1, Math.floor((top + h - 1) / this.T));
+    for (let r = r0; r <= r1; r++)
+      for (let c = c0; c <= c1; c++) {
+        const i = r * this.cols + c;
+        this.walkable[i] = this.originalWalkable[i];
+      }
   }
 
   private ok(r: number, c: number): boolean {

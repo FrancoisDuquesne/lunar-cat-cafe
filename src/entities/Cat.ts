@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { CatPersonality, CatState as CatStateData } from '../types';
+import { BaseCharacter } from './BaseCharacter';
 
 type CatAIState = 'sleeping' | 'waking' | 'wandering' | 'sitting' | 'approaching_customer';
 
 interface WanderTarget { x: number; y: number }
 
-export class Cat extends Phaser.Physics.Arcade.Sprite {
+export class Cat extends BaseCharacter {
   readonly catId: number;
   readonly catName: string;
   readonly personality: CatPersonality;
@@ -39,8 +40,6 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
     bounds: Phaser.Geom.Rectangle,
   ) {
     super(scene, x, y, `cat_${data.colorKey}_sleep`);
-    scene.add.existing(this);
-    scene.physics.add.existing(this);
 
     this.catId = data.id;
     this.catName = data.name;
@@ -111,8 +110,7 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
   }
 
   private handleSleeping(delta: number): void {
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(0, 0);
+    this.setVel(0, 0);
     this.setTexture(`cat_${this.colorKey}_sleep`);
 
     // Sleeping z animation
@@ -160,8 +158,7 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
 
     if (dist < 8) {
       // Reached target
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0, 0);
+      this.setVel(0, 0);
       this.wanderTarget = null;
 
       // Decide next action
@@ -182,14 +179,12 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
       }
     } else {
       const speed = this.personality === 'lazy' ? 30 : this.personality === 'explorer' ? 55 : 42;
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity((dx / dist) * speed, (dy / dist) * speed);
+      this.setVel((dx / dist) * speed, (dy / dist) * speed);
     }
 
     // Lazy personality occasionally stops mid-wander
     if (this.personality === 'lazy' && Math.random() < delta * 0.0005) {
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0, 0);
+      this.setVel(0, 0);
       this.aiState = 'sitting';
       this.stateTimer = Phaser.Math.Between(2000, 4000);
     }
@@ -203,15 +198,13 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
         const dx2 = (this.wanderTarget?.x ?? this.x) - this.x;
         const dy2 = (this.wanderTarget?.y ?? this.y) - this.y;
         const d2 = Math.sqrt(dx2*dx2+dy2*dy2) || 1;
-        const body = this.body as Phaser.Physics.Arcade.Body;
-        body.setVelocity((dx2/d2)*90, (dy2/d2)*90);
+        this.setVel((dx2/d2)*90, (dy2/d2)*90);
       }
     }
   }
 
   private handleSitting(_delta: number, customerPositions: Array<{ x: number; y: number; id: number }>): void {
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(0, 0);
+    this.setVel(0, 0);
     this.setTexture(`cat_${this.colorKey}`);
 
     // While sitting near a customer, boost their happiness (handled in GameScene)
@@ -242,17 +235,14 @@ export class Cat extends Phaser.Physics.Arcade.Sprite {
 
     if (dist < 24) {
       // Reached customer – sit near them
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0, 0);
+      this.setVel(0, 0);
       this.approachTarget = null;
       this.aiState = 'sitting';
       this.stateTimer = Phaser.Math.Between(3000, 7000);
       // Emit heart particles when near customer
       this.emitHearts();
     } else {
-      const speed = 45;
-      const body = this.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity((dx / dist) * speed, (dy / dist) * speed);
+      this.setVel((dx / dist) * 45, (dy / dist) * 45);
     }
   }
 

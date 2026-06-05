@@ -1,18 +1,20 @@
 import Phaser from 'phaser';
 import {
   TILE, GAME_W, GAME_H, MAP_COLS, MAP_ROWS, COLORS, MENU_ITEMS,
-  DAY_DURATION_MS, CUSTOMER_SPAWN_MS, EMPLOYEE_NAMES,
+  DAY_DURATION_MS, EMPLOYEE_NAMES,
   DECORATION_ITEMS, CAFE_TIERS, DecorationDef, PlacedDecoration,
-  SHOP_ITEMS, TABLE_SLOT_DEFS, TableSlotDef, EMPLOYEE_TYPES, EmployeeRole,
+  TABLE_SLOT_DEFS, TableSlotDef, EMPLOYEE_TYPES, EmployeeRole,
+  INTERACTION_REACH, PET_COOLDOWN_MS, BOOKING_COST, MAX_BOOKINGS,
+  DECORATION_REFUND_RATIO, MACHINE_DEFS,
 } from '../constants';
-import { MenuItemDef, CustomerType, InteractionContext, TableSlot, TableSeat, ShopState, OrderInfo } from '../types';
+import { MenuItemDef, CustomerType, InteractionContext, TableSlot, ShopState, OrderInfo, GameCommand } from '../types';
 import { Player } from '../entities/Player';
 import { Cat } from '../entities/Cat';
-import { Customer } from '../entities/Customer';
 import { Employee } from '../entities/Employee';
 import { loadGame, defaultSaveState, saveGame } from '../systems/SaveSystem';
 import { Pathfinder } from '../systems/Pathfinder';
-import type { ReadyStation } from '../entities/Employee';
+import { KitchenSystem, Station } from '../systems/KitchenSystem';
+import { CustomerSystem } from '../systems/CustomerSystem';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAP DEFINITION  —  Central Kitchen Island layout
@@ -47,37 +49,15 @@ const MAP: number[][] = [
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 17 moon exterior
 ];
 
-interface Station {
-  id: number;
-  type: 'coffee' | 'stove' | 'prep';
-  worldX: number;
-  worldY: number;
-  sprite: Phaser.GameObjects.Sprite;
-  label: Phaser.GameObjects.Text;
-  isCooking: boolean;
-  cookProgress: number;
-  cookTargetMs: number;
-  progressBg?: Phaser.GameObjects.Sprite;
-  progressFill?: Phaser.GameObjects.Graphics;
-  readyFoodSprite?: Phaser.GameObjects.Sprite;
-  currentOrderId: number | null;
-}
-
 export class GameScene extends Phaser.Scene {
   private player!: Player;
   private cats: Cat[] = [];
-  private customers: Customer[] = [];
-  private stations: Station[] = [];
   private tables: TableSlot[] = [];
   private employees: Employee[] = [];
   private employeeAssignedIds = new Set<number>();
-  private cookNpcs: Array<{
-    sprite: Phaser.GameObjects.Sprite;
-    badge: Phaser.GameObjects.Text;
-    homeX: number; homeY: number;
-    bobTween: Phaser.Tweens.Tween | null;
-    assignedStationId: number | null;
-  }> = [];
+
+  private kitchen!: KitchenSystem;
+  private customerSys!: CustomerSystem;
 
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private furnitureGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -87,34 +67,27 @@ export class GameScene extends Phaser.Scene {
   private day = 1;
   private dayProgress = 0;
   private totalServed = 0;
-  private nextCustomerId = 1;
   private shopState: ShopState = {
-    catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
+    catToys: 0, catTrees: 0, employees: 0,
     placedDecorations: [],
     ownedTableSlotIds: [0, 1, 2],
     cooks: 0, guards: 0, caterers: 0,
-    ownedStations: ['coffee'],
+    ownedMachines: ['espresso_machine'],
   };
 
   private interactionPrompt?: Phaser.GameObjects.Container;
   private currentInteraction: InteractionContext = { type: 'none', label: '' };
 
-  private customerSpawnTimer = 0;
   private autoSaveTimer = 0;
-  private autoCookTimer = 0;
   private dayPhase: 'morning' | 'afternoon' | 'evening' | 'night' = 'morning';
   private dayEnded = false;
   private dayEndShown = false;
+  private isTransitioningDay = false;
 
-  private steamEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
-
-  private trashCanX = 0;
-  private trashCanY = 0;
-
-  private shopRefreshFns: Array<(hover?: boolean) => void> = [];
   private uiRefreshTimer = 0;
   private pathfinder!: Pathfinder;
   private customerPathfinder!: Pathfinder;
+  private audioCtx: AudioContext | null = null;
   private deliveryArrow?: Phaser.GameObjects.Text;
   private catPetCooldowns = new Map<number, number>();
   private employeeDeliveryIds = new Set<number>();
@@ -133,11 +106,6 @@ export class GameScene extends Phaser.Scene {
   private tableChairSprites   = new Map<string, Phaser.GameObjects.Image[]>();
   private tableLabels         = new Map<string, Phaser.GameObjects.Text>();
 
-  // Entrance queue
-  private customerQueue: Array<{ type: CustomerType }> = [];
-  private queueSprites: Phaser.GameObjects.Sprite[] = [];
-  private queueLabel?: Phaser.GameObjects.Text;
-
   // Per-day metrics
   private servedToday = 0;
   private revenueToday = 0;
@@ -147,22 +115,15 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     // Reset mutable state
-    this.customers = [];
-    this.stations = [];
     this.tables = [];
     this.cats = [];
     this.employees = [];
     this.employeeAssignedIds = new Set();
-    this.cookNpcs = [];
-    this.shopRefreshFns = [];
     this.uiRefreshTimer = 0;
-    this.autoCookTimer = 0;
     this.dayProgress = 0;
     this.dayEnded = false;
     this.dayEndShown = false;
     this.dayPhase = 'morning';
-    this.nextCustomerId = 1;
-    this.customerSpawnTimer = 0;
     this.autoSaveTimer = 0;
     this.interactionPrompt = undefined;
     this.currentInteraction = { type: 'none', label: '' };
@@ -179,9 +140,6 @@ export class GameScene extends Phaser.Scene {
     this.deliveryArrow = undefined;
     this.catPetCooldowns = new Map();
     this.employeeDeliveryIds = new Set();
-    this.customerQueue = [];
-    this.queueSprites = [];
-    this.queueLabel = undefined;
     this.servedToday = 0;
     this.revenueToday = 0;
 
@@ -192,19 +150,24 @@ export class GameScene extends Phaser.Scene {
     this.totalServed = saved.totalServed;
     this.popularityHistory = saved.popularityHistory ?? [];
     this.shopState = saved.shop ?? {
-      catToys: 0, catTrees: 0, employees: 0, extraMachines: 0,
+      catToys: 0, catTrees: 0, employees: 0,
       placedDecorations: [], ownedTableSlotIds: [0, 1, 2],
       cooks: 0, guards: 0, caterers: 0,
       ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
       dailyMenuIds: ['moon_mocha', 'zerog_latte'],
-      ownedStations: ['coffee'],
+      ownedMachines: ['espresso_machine'],
     };
-    if (!this.shopState.ownedStations) this.shopState.ownedStations = ['coffee', 'stove', 'prep'];
-
     this.buildMap();
     this.buildFurniture();
     this.buildPathfinder();
-    this.buildKitchenStations();
+
+    this.kitchen = new KitchenSystem(this, this.shopState, this.wallGroup, this.pathfinder, {
+      onUIUpdate: () => this.emitUIUpdate(),
+      onChime: () => this.playChime(),
+      onCook: () => this.playCook(),
+    });
+    this.kitchen.build();
+
     this.buildCatBeds();
     this.buildDecorations();
     this.buildExteriorDecor();
@@ -220,9 +183,28 @@ export class GameScene extends Phaser.Scene {
 
     this.spawnCats(saved.cats);
     this.spawnEmployees();
-    this.spawnCooks();
-    this.setupSteam();
+    this.kitchen.spawnCooks(this.employees.length);
+    this.kitchen.setupSteam();
     this.setupSpaceAmbience();
+
+    this.customerSys = new CustomerSystem(this, this.tables, this.wallGroup, this.customerPathfinder, this.shopState, {
+      getEffectiveMenu: () => this.getEffectiveMenu(),
+      getCurrentTierLevel: () => this.getCurrentTier().level,
+      onBeginLeave: (id) => this.handleCustomerLeaving(id),
+      onCustomerGone: (id, happiness) => {
+        this.employeeAssignedIds.delete(id);
+        this.employeeDeliveryIds.delete(id);
+        this.kitchen.unlinkCustomer(id);
+        if (happiness < 40) this.reputation = Math.max(0, this.reputation - 1);
+        this.emitUIUpdate();
+      },
+      onBookedGuestArrived: () => {
+        this.showFloatingText(GAME_W / 2, GAME_H / 2 - 40, '★ Reserved guest arrived!', '#88CCFF');
+        this.playChime();
+      },
+      onTutorial: () => this.showTutorialHint(),
+      onUIUpdate: () => this.emitUIUpdate(),
+    });
 
     this.emitUIUpdate();
     this.cameras.main.fadeIn(800, 5, 5, 16);
@@ -233,8 +215,8 @@ export class GameScene extends Phaser.Scene {
       callbackScope: this,
     });
 
-    this.scheduleNextCustomer();
-    this.spawnBookedGuests();
+    this.customerSys.scheduleNextCustomer(this.reputation, this.dayPhase);
+    this.customerSys.spawnBookedGuests();
 
     // When scene wakes from sleep (returning from main menu), refresh the HUD
     this.events.on('wake', () => { this.emitUIUpdate(); }, this);
@@ -250,37 +232,33 @@ export class GameScene extends Phaser.Scene {
 
     // F key — toggle store panel (S and D are reserved for WASD movement)
     const toggleStore = () => {
-      if (this.isStorePanelOpen) {
-        this.closeStorePanel();
-        this.game.events.emit('game_event', { type: 'close_store_panel' });
-      } else {
-        this.openStorePanel();
-        this.game.events.emit('game_event', { type: 'open_store_panel' });
-      }
+      if (this.isStorePanelOpen) { this.closeStorePanel(); }
+      else { this.openStorePanel(); }
     };
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F).on('down', toggleStore);
 
-    this.game.events.on('game_event', (evt: {
-      type: string; defId?: string; slotId?: number;
-      role?: EmployeeRole; upgradeId?: string; itemId?: string;
-    }) => {
-      if (evt.type === 'start_placement') {
-        const def = DECORATION_ITEMS.find(d => d.id === evt.defId);
+    this.game.events.on('game_event', (cmd: GameCommand) => {
+      if (cmd.type === 'start_placement') {
+        const def = DECORATION_ITEMS.find(d => d.id === cmd.defId);
         if (def) { this.pendingDecorationDef = def; this.refreshGhostSprite(); }
-      } else if (evt.type === 'close_store_panel') {
+      } else if (cmd.type === 'close_store_panel') {
         this.closeStorePanel();
-      } else if (evt.type === 'open_store_panel') {
+      } else if (cmd.type === 'open_store_panel') {
         this.openStorePanel();
-      } else if (evt.type === 'buy_table' && evt.slotId !== undefined) {
-        this.handleBuyTable(evt.slotId);
-      } else if (evt.type === 'hire_staff' && evt.role) {
-        this.handleHireStaff(evt.role);
-      } else if (evt.type === 'buy_kitchen' && evt.upgradeId) {
-        this.handleBuyKitchen(evt.upgradeId);
-      } else if (evt.type === 'buy_recipe' && evt.itemId) {
-        this.handleBuyRecipe(evt.itemId);
-      } else if (evt.type === 'toggle_daily_recipe' && evt.itemId) {
-        this.handleToggleDailyRecipe(evt.itemId);
+      } else if (cmd.type === 'buy_table') {
+        this.handleBuyTable(cmd.slotId);
+      } else if (cmd.type === 'hire_staff') {
+        this.handleHireStaff(cmd.role);
+      } else if (cmd.type === 'buy_machine') {
+        this.handleBuyMachine(cmd.machineId);
+      } else if (cmd.type === 'buy_recipe') {
+        this.handleBuyRecipe(cmd.itemId);
+      } else if (cmd.type === 'toggle_daily_recipe') {
+        this.handleToggleDailyRecipe(cmd.itemId);
+      } else if (cmd.type === 'next_day') {
+        this.startNextDay();
+      } else if (cmd.type === 'set_bookings') {
+        this.handleSetBookings(cmd.delta);
       }
     }, this);
 
@@ -419,114 +397,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // KITCHEN
-  // ─────────────────────────────────────────────────────────────────────
-
-  private buildKitchenStations(): void {
-    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
-
-    const allBaseDefs: StationDef[] = [
-      { col: 12, row: 7, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee' },
-      { col: 15, row: 7, type: 'stove',  tex: 'obj_stove',          label: 'Stove'  },
-      { col: 17, row: 7, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep'   },
-    ];
-    const allExtraDefs: StationDef[] = [
-      { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
-      { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
-      { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
-    ];
-
-    const owned = new Set(this.shopState.ownedStations ?? ['coffee']);
-    const baseDefs = allBaseDefs.filter(d => owned.has(d.type));
-    const extraDefs = allExtraDefs.filter(d => owned.has(d.type));
-    const defs = this.shopState.extraMachines >= 1 ? [...baseDefs, ...extraDefs] : baseDefs;
-
-    defs.forEach((def, i) => {
-      const wx = def.col * TILE + TILE / 2;
-      const wy = def.row * TILE + TILE / 2;
-
-      const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
-      const label = this.add.text(wx, wy - 20, def.label, {
-        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 1).setDepth(5);
-
-      this.stations.push({
-        id: i, type: def.type, worldX: wx, worldY: wy,
-        sprite, label, isCooking: false, cookProgress: 0,
-        cookTargetMs: 0, currentOrderId: null,
-      });
-    });
-
-    this.trashCanX = 18 * TILE + TILE / 2;
-    this.trashCanY = 8 * TILE + TILE / 2;
-    this.add.sprite(this.trashCanX, this.trashCanY, 'obj_trash_can').setDepth(4).setOrigin(0.5, 0.7);
-    this.add.text(this.trashCanX, this.trashCanY - 16, 'Discard', {
-      fontSize: '10px', color: '#998877', fontFamily: 'monospace',
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(5);
-  }
-
-  private addExtraKitchenStations(): void {
-    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
-    const allExtraDefs: StationDef[] = [
-      { col: 12, row: 8, type: 'coffee', tex: 'obj_coffee_machine', label: 'Coffee 2' },
-      { col: 15, row: 8, type: 'stove',  tex: 'obj_stove',          label: 'Stove 2'  },
-      { col: 17, row: 8, type: 'prep',   tex: 'obj_prep_counter',   label: 'Prep 2'   },
-    ];
-    const owned = new Set(this.shopState.ownedStations ?? ['coffee']);
-    const extraDefs = allExtraDefs.filter(d => owned.has(d.type));
-    const startId = this.stations.length;
-    extraDefs.forEach((def, i) => {
-      const wx = def.col * TILE + TILE / 2;
-      const wy = def.row * TILE + TILE / 2;
-      const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
-      const label = this.add.text(wx, wy - 20, def.label, {
-        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 1).setDepth(5);
-      this.stations.push({
-        id: startId + i, type: def.type, worldX: wx, worldY: wy,
-        sprite, label, isCooking: false, cookProgress: 0,
-        cookTargetMs: 0, currentOrderId: null,
-      });
-    });
-  }
-
-  private addBoughtStation(type: 'stove' | 'prep'): void {
-    type StationDef = { col: number; row: number; type: 'coffee' | 'stove' | 'prep'; tex: string; label: string };
-    const defs: Record<string, StationDef> = {
-      stove: { col: 15, row: 7, type: 'stove', tex: 'obj_stove',        label: 'Stove' },
-      prep:  { col: 17, row: 7, type: 'prep',  tex: 'obj_prep_counter', label: 'Prep'  },
-    };
-    const def = defs[type];
-    const wx = def.col * TILE + TILE / 2;
-    const wy = def.row * TILE + TILE / 2;
-    const sprite = this.add.sprite(wx, wy - 4, def.tex).setDepth(4).setOrigin(0.5, 0.7);
-    const label = this.add.text(wx, wy - 20, def.label, {
-      fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(5);
-    const id = this.stations.length;
-    this.stations.push({ id, type: def.type, worldX: wx, worldY: wy, sprite, label, isCooking: false, cookProgress: 0, cookTargetMs: 0, currentOrderId: null });
-    if (this.shopState.extraMachines >= 1) {
-      const extraDefs: Record<string, StationDef> = {
-        stove: { col: 15, row: 8, type: 'stove', tex: 'obj_stove',        label: 'Stove 2' },
-        prep:  { col: 17, row: 8, type: 'prep',  tex: 'obj_prep_counter', label: 'Prep 2'  },
-      };
-      const eDef = extraDefs[type];
-      const ex = eDef.col * TILE + TILE / 2;
-      const ey = eDef.row * TILE + TILE / 2;
-      const eSprite = this.add.sprite(ex, ey - 4, eDef.tex).setDepth(4).setOrigin(0.5, 0.7);
-      const eLabel = this.add.text(ex, ey - 20, eDef.label, {
-        fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 1).setDepth(5);
-      const eid = this.stations.length;
-      this.stations.push({ id: eid, type: eDef.type, worldX: ex, worldY: ey, sprite: eSprite, label: eLabel, isCooking: false, cookProgress: 0, cookTargetMs: 0, currentOrderId: null });
-    }
-  }
 
   // ─────────────────────────────────────────────────────────────────────
   // CAT BEDS + DECORATIONS
@@ -790,7 +660,7 @@ export class GameScene extends Phaser.Scene {
       this.tables.push({ id: tableId, worldX: wx, worldY: wy,
         seats: [{ seatX: wx, seatY: wy, occupied: false, customerId: null }] });
 
-      const label = this.add.text(wx, wy - 16, `B${tableId - 99}`, {
+      const label = this.add.text(wx, wy - 16, `T${tableId + 1}`, {
         fontSize: '9px', color: '#FFDD88', fontFamily: 'monospace', fontStyle: 'bold',
         stroke: '#3A1A00', strokeThickness: 3,
       }).setOrigin(0.5, 0.5).setDepth(4.5);
@@ -874,9 +744,20 @@ export class GameScene extends Phaser.Scene {
   getEffectiveMenu(): MenuItemDef[] {
     const tier = this.getCurrentTier();
     const daily = new Set(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
+    const ownedMachines = new Set(this.shopState.ownedMachines ?? ['espresso_machine']);
     return (MENU_ITEMS as unknown as MenuItemDef[])
-      .filter(item => daily.has(item.id as string) && tier.unlockedMenuIds.includes(item.id as any))
+      .filter(item =>
+        daily.has(item.id as string)
+        && tier.unlockedMenuIds.includes(item.id as any)
+        && item.machines.every(m => ownedMachines.has(m)),
+      )
       .map(item => ({ ...item, price: Math.round(item.price * tier.priceMultiplier) }));
+  }
+
+  private handleCustomerLeaving(customerId: number): void {
+    this.kitchen.unlinkCustomer(customerId);
+    this.employeeAssignedIds.delete(customerId);
+    this.employeeDeliveryIds.delete(customerId);
   }
 
   private isValidDecoTile(tileX: number, tileY: number): boolean {
@@ -890,12 +771,13 @@ export class GameScene extends Phaser.Scene {
   private openStorePanel(): void {
     if (this.isStorePanelOpen) return;
     this.isStorePanelOpen = true;
-    // Freeze all physics bodies
-    this.customers.forEach(c => (c.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
+    // Freeze all physics bodies and the day timer
+    this.customerSys.customers.forEach(c => (c.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
     this.employees.forEach(e => (e.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
     this.cats.forEach(cat => (cat.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0));
     (this.player.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0);
     this.physics.world.pause();
+    this.time.paused = true;
 
     this.decorateOverlayText = this.add.text(GAME_W / 2, 62, 'STORE  —  F or ESC to close', {
       fontSize: '13px', color: '#FFD700', fontFamily: 'monospace',
@@ -911,6 +793,7 @@ export class GameScene extends Phaser.Scene {
     this.ghostSprite?.destroy(); this.ghostSprite = null;
     this.decorateOverlayText?.destroy(); this.decorateOverlayText = null;
     this.physics.world.resume();
+    this.time.paused = false;
   }
 
   private refreshGhostSprite(): void {
@@ -982,14 +865,22 @@ export class GameScene extends Phaser.Scene {
           // Remove table slot and physics
           if (tableSlot) this.tables.splice(this.tables.indexOf(tableSlot), 1);
           const tBody = this.tableFurnitureBodies.get(key);
-          if (tBody) { this.furnitureGroup.remove(tBody, true, true); this.tableFurnitureBodies.delete(key); }
+          if (tBody) {
+            const body = tBody.body as Phaser.Physics.Arcade.StaticBody;
+            if (body) {
+              this.pathfinder.unblockRect(body.x, body.y, body.width, body.height);
+              this.customerPathfinder.unblockRect(body.x, body.y, body.width, body.height);
+            }
+            this.furnitureGroup.remove(tBody, true, true);
+            this.tableFurnitureBodies.delete(key);
+          }
           this.tableChairSprites.get(key)?.forEach(c => c.destroy());
           this.tableChairSprites.delete(key);
           this.tableLabels.get(key)?.destroy();
           this.tableLabels.delete(key);
         }
 
-        const refund = def ? Math.floor(def.cost * 0.5) : 0;
+        const refund = def ? Math.floor(def.cost * DECORATION_REFUND_RATIO) : 0;
         this.shopState.placedDecorations.splice(idx, 1);
         this.occupiedDecoTiles.delete(key);
         this.hardBlockedTiles.delete(key);
@@ -1064,7 +955,7 @@ export class GameScene extends Phaser.Scene {
     if (role === 'waiter') {
       this.spawnOneEmployee(this.shopState.employees - 1);
     } else if (role === 'cook') {
-      this.spawnOneCook(this.shopState.cooks - 1);
+      this.kitchen.spawnOneCook(this.shopState.cooks - 1, this.employees.length);
     }
 
     this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} hired!`, '#60FF88');
@@ -1073,38 +964,22 @@ export class GameScene extends Phaser.Scene {
     this.emitUIUpdate();
   }
 
-  private handleBuyKitchen(upgradeId: string): void {
-    const stationCosts: Record<string, number> = { stove: 100, prep: 80 };
-    if (upgradeId === 'stove' || upgradeId === 'prep') {
-      const owned = this.shopState.ownedStations ?? ['coffee'];
-      if (owned.includes(upgradeId)) return;
-      const cost = stationCosts[upgradeId];
-      if (this.money < cost) {
-        this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
-        return;
-      }
-      this.money -= cost;
-      this.shopState.ownedStations = [...owned, upgradeId];
-      this.addBoughtStation(upgradeId);
-      const names: Record<string, string> = { stove: 'Stove installed!', prep: 'Prep counter installed!' };
-      this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, names[upgradeId], '#AAFFAA');
-      this.playChime();
-      this.saveCurrentState();
-      this.emitUIUpdate();
-    } else if (upgradeId === 'extra_machines') {
-      if (this.shopState.extraMachines >= 1) return;
-      if (this.money < 180) {
-        this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
-        return;
-      }
-      this.money -= 180;
-      this.shopState.extraMachines = 1;
-      this.addExtraKitchenStations();
-      this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, 'Extra machines added!', '#AAFFAA');
-      this.playChime();
-      this.saveCurrentState();
-      this.emitUIUpdate();
+  private handleBuyMachine(machineId: string): void {
+    const def = MACHINE_DEFS.find(d => d.id === machineId);
+    if (!def || def.starter) return;
+    const owned = this.shopState.ownedMachines ?? ['espresso_machine'];
+    if (owned.includes(machineId)) return;
+    if (this.money < def.cost) {
+      this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
+      return;
     }
+    this.money -= def.cost;
+    this.shopState.ownedMachines = [...owned, machineId];
+    this.kitchen.addMachine(machineId);
+    this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2, `${def.name} installed!`, '#AAFFAA');
+    this.playChime();
+    this.saveCurrentState();
+    this.emitUIUpdate();
   }
 
   private handleBuyRecipe(itemId: string): void {
@@ -1201,7 +1076,7 @@ export class GameScene extends Phaser.Scene {
     );
     emp.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
     emp.onTakeOrder = (customerId) => {
-      const c = this.customers.find(cu => cu.customerId === customerId);
+      const c = this.customerSys.customers.find(cu => cu.customerId === customerId);
       if (c && c.aiState === 'waiting_order') {
         c.takeOrder();
         this.showFloatingText(emp.x, emp.y - 30, 'Order taken!', '#AAFFAA');
@@ -1210,26 +1085,13 @@ export class GameScene extends Phaser.Scene {
     };
 
     emp.onPickupFood = (stationId) => {
-      const stn = this.stations.find(s => s.id === stationId);
-      if (!stn || !stn.isCooking || stn.cookProgress < 1 || stn.currentOrderId === null) return null;
-      const customer = this.customers.find(c => c.customerId === stn.currentOrderId && c.aiState === 'waiting_food');
-      if (!customer?.order) return null;
-      const itemId = customer.order.id;
-      stn.isCooking = false;
-      stn.cookProgress = 0;
-      stn.currentOrderId = null;
-      stn.progressBg?.destroy(); stn.progressBg = undefined;
-      stn.progressFill?.destroy(); stn.progressFill = undefined;
-      stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
-      stn.sprite.clearTint();
-      this.playCook();
-      // Start the next pending order immediately instead of waiting for the timer
-      this.autoCookTimer = 0;
+      const itemId = this.kitchen.pickupFromStation(stationId);
+      if (itemId) this.playCook();
       return itemId;
     };
 
     emp.onDeliverFood = (customerId, itemId) => {
-      const c = this.customers.find(cu => cu.customerId === customerId);
+      const c = this.customerSys.customers.find(cu => cu.customerId === customerId);
       if (!c || c.aiState !== 'waiting_food' || c.order?.id !== itemId) return;
       c.receiveFood();
       const catererBonus = 1 + (this.shopState.caterers ?? 0) * 0.25;
@@ -1248,274 +1110,6 @@ export class GameScene extends Phaser.Scene {
     this.employees.push(emp);
   }
 
-  private spawnCooks(): void {
-    for (let i = 0; i < (this.shopState.cooks ?? 0); i++) {
-      this.spawnOneCook(i);
-    }
-  }
-
-  private spawnOneCook(index: number): void {
-    const positions = [
-      { col: 7,  row: 5 },
-      { col: 18, row: 5 },
-    ];
-    const pos = positions[index % positions.length];
-    const wx = pos.col * TILE + TILE / 2;
-    const wy = pos.row * TILE + TILE / 2;
-
-    const sprite = this.add.sprite(wx, wy, 'player_employee')
-      .setDepth(10 + wy / 1000)
-      .setTint(0xFFBB66);
-
-    const badge = this.add.text(wx, wy - 24, EMPLOYEE_NAMES[(this.employees.length + index) % EMPLOYEE_NAMES.length], {
-      fontSize: '8px', color: '#FFCC88', fontFamily: 'monospace',
-      stroke: '#442200', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(11);
-
-    const bobTween = this.tweens.add({
-      targets: sprite, y: wy - 3,
-      duration: 900 + index * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-    });
-
-    this.cookNpcs.push({ sprite, badge, homeX: wx, homeY: wy, bobTween, assignedStationId: null });
-  }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // AUTO-COOK (Cook employees)
-  // ─────────────────────────────────────────────────────────────────────
-
-  private moveCookToStation(npc: typeof this.cookNpcs[0], stn: Station): void {
-    npc.bobTween?.stop();
-    npc.assignedStationId = stn.id;
-    const tx = stn.worldX;
-    const ty = stn.worldY + 4;
-    this.tweens.add({
-      targets: npc.sprite, x: tx, y: ty,
-      duration: 600, ease: 'Quad.easeInOut',
-      onComplete: () => {
-        npc.bobTween = this.tweens.add({
-          targets: npc.sprite, y: ty - 3,
-          duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        });
-      },
-    });
-  }
-
-  private moveCookHome(npc: typeof this.cookNpcs[0]): void {
-    npc.bobTween?.stop();
-    npc.assignedStationId = null;
-    const tx = npc.homeX;
-    const ty = npc.homeY;
-    this.tweens.add({
-      targets: npc.sprite, x: tx, y: ty,
-      duration: 500, ease: 'Quad.easeOut',
-      onComplete: () => {
-        npc.bobTween = this.tweens.add({
-          targets: npc.sprite, y: ty - 3,
-          duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        });
-      },
-    });
-  }
-
-  private tryAutoCook(): void {
-    for (const stn of this.stations) {
-      if (stn.isCooking) continue;
-      const pending = this.getPendingOrderForStation(stn.type);
-      if (pending) {
-        stn.isCooking = true;
-        stn.cookProgress = 0;
-        stn.cookTargetMs = pending.item.prepTime;
-        stn.currentOrderId = pending.customerId;
-        this.startCookingVisual(stn);
-        this.playCook();
-        // Move an available cook NPC to the station
-        const npc = this.cookNpcs.find(c => c.assignedStationId === null)
-                 ?? this.cookNpcs[0];
-        if (npc) this.moveCookToStation(npc, stn);
-        this.emitUIUpdate();
-        return;
-      }
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // CUSTOMER MANAGEMENT
-  // ─────────────────────────────────────────────────────────────────────
-
-  private scheduleNextCustomer(): void {
-    const repFactor = Math.max(0.4, 1 - this.reputation * 0.01);
-    // Rush hour: afternoon spawns 45% faster, evening 20% faster
-    const phaseMult = this.dayPhase === 'afternoon' ? 0.55 : this.dayPhase === 'evening' ? 0.80 : 1.0;
-    const delay = CUSTOMER_SPAWN_MS * repFactor * phaseMult + Phaser.Math.Between(-2000, 2000);
-    this.customerSpawnTimer = Math.max(4000, delay);
-  }
-
-  private spawnCustomer(): void {
-    if (this.dayEnded) return;
-
-    const tryGroup = Math.random() < 0.28;
-    if (tryGroup) {
-      const groupTable = this.tables.find(t => t.seats.filter(s => !s.occupied).length >= 2);
-      if (groupTable) {
-        this.spawnGroup(groupTable);
-        return;
-      }
-    }
-
-    const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
-    if (!freeTable) {
-      // No seats — add to queue if tier allows
-      const cap = this.getQueueCapacity();
-      if (this.customerQueue.length < cap) {
-        const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
-        this.customerQueue.push({ type: types[Math.floor(Math.random() * types.length)] });
-        this.rebuildQueueSprites();
-      }
-      return;
-    }
-
-    // Dequeue a waiting type if available, else pick random
-    let type: CustomerType;
-    if (this.customerQueue.length > 0) {
-      type = this.customerQueue.shift()!.type;
-      this.rebuildQueueSprites();
-    } else {
-      const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
-      type = types[Math.floor(Math.random() * types.length)];
-    }
-
-    const freeSeat = freeTable.seats.find(s => !s.occupied)!;
-    const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, type);
-    customer.tableId = freeTable.id;
-    this.customers.push(customer);
-    freeSeat.occupied = true;
-    freeSeat.customerId = customer.customerId;
-    this.physics.add.collider(customer, this.wallGroup);
-
-    if (this.day === 1 && this.nextCustomerId === 2) {
-      this.time.delayedCall(4000, () => this.showTutorialHint());
-    }
-  }
-
-  private tryDequeueCustomer(): void {
-    if (this.customerQueue.length === 0 || this.dayEnded) return;
-    const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
-    if (!freeTable) return;
-    const entry = this.customerQueue.shift()!;
-    this.rebuildQueueSprites();
-    const freeSeat = freeTable.seats.find(s => !s.occupied)!;
-    const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, entry.type);
-    customer.tableId = freeTable.id;
-    this.customers.push(customer);
-    freeSeat.occupied = true;
-    freeSeat.customerId = customer.customerId;
-    this.physics.add.collider(customer, this.wallGroup);
-  }
-
-  private getQueueCapacity(): number {
-    const tier = this.getCurrentTier().level;
-    return tier <= 1 ? 0 : Math.min(8, (tier - 1) * 2);
-  }
-
-  private getQueuePositions(): Array<{x: number; y: number}> {
-    const cx = 15.5 * TILE;
-    const y1 = 16.5 * TILE;
-    const y2 = 17.2 * TILE;
-    return [
-      { x: cx,            y: y1 },
-      { x: cx - TILE,     y: y1 },
-      { x: cx + TILE,     y: y1 },
-      { x: cx - 2 * TILE, y: y1 },
-      { x: cx + 2 * TILE, y: y1 },
-      { x: cx,            y: y2 },
-      { x: cx - TILE,     y: y2 },
-      { x: cx + TILE,     y: y2 },
-    ];
-  }
-
-  private rebuildQueueSprites(): void {
-    this.queueSprites.forEach(s => s.destroy());
-    this.queueSprites = [];
-    this.queueLabel?.destroy();
-    this.queueLabel = undefined;
-
-    if (this.customerQueue.length === 0) return;
-
-    const positions = this.getQueuePositions();
-    this.customerQueue.forEach((entry, i) => {
-      if (i >= positions.length) return;
-      const pos = positions[i];
-      const spr = this.add.sprite(pos.x, pos.y, `customer_${entry.type}`)
-        .setScale(0.72).setDepth(7).setTint(0xBBBBCC).setAlpha(0.88);
-      this.queueSprites.push(spr);
-    });
-
-    const overflow = this.customerQueue.length - positions.length;
-    const labelText = overflow > 0
-      ? `⏳ ${this.customerQueue.length} waiting (+${overflow})`
-      : `⏳ ${this.customerQueue.length} waiting`;
-    this.queueLabel = this.add.text(15.5 * TILE, 16 * TILE - 6, labelText, {
-      fontSize: '10px', color: '#FFD700', fontFamily: 'monospace',
-      stroke: '#000000', strokeThickness: 2,
-      backgroundColor: '#00000077', padding: { x: 4, y: 2 },
-    }).setOrigin(0.5, 1).setDepth(8);
-  }
-
-  private showTutorialHint(): void {
-    const hints = [
-      { y: GAME_H / 2 - 30, text: 'Walk to a customer and press E to take their order!' },
-      { y: GAME_H / 2 + 10, text: 'Then cook at the matching station and deliver the food.' },
-    ];
-    hints.forEach((h, i) => {
-      const t = this.add.text(GAME_W / 2, h.y, h.text, {
-        fontSize: '13px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#000000', strokeThickness: 3, backgroundColor: '#00000066',
-        padding: { x: 8, y: 4 },
-      }).setOrigin(0.5).setDepth(190).setAlpha(0);
-      this.tweens.add({
-        targets: t, alpha: 1, duration: 400, delay: i * 200,
-        onComplete: () => {
-          this.time.delayedCall(4000, () => {
-            this.tweens.add({ targets: t, alpha: 0, duration: 600, onComplete: () => t.destroy() });
-          });
-        },
-      });
-    });
-  }
-
-  private spawnGroup(table: TableSlot): void {
-    const freeSeats = table.seats.filter(s => !s.occupied).slice(0, 2);
-    for (const seat of freeSeats) {
-      const customer = this.createCustomer(seat.seatX, seat.seatY);
-      customer.tableId = table.id;
-      this.customers.push(customer);
-      seat.occupied = true;
-      seat.customerId = customer.customerId;
-      this.physics.add.collider(customer, this.wallGroup);
-    }
-  }
-
-  private createCustomer(seatX: number, seatY: number): Customer {
-    const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
-    return this.createCustomerOfType(seatX, seatY, types[Math.floor(Math.random() * types.length)]);
-  }
-
-  private createCustomerOfType(seatX: number, seatY: number, type: CustomerType, boostedPatience = false): Customer {
-    const spawnX = (14 + Math.floor(Math.random() * 4)) * TILE + TILE / 2;
-    const spawnY = 16 * TILE + TILE / 2;
-    const customer = new Customer(
-      this, spawnX, spawnY,
-      this.nextCustomerId++, type,
-      seatX, seatY,
-      GAME_W / 2, GAME_H + 20,
-    );
-    customer.pathFinder = (fx, fy, tx, ty) => this.customerPathfinder.findPath(fx, fy, tx, ty);
-    customer.getAvailableMenuItems = () => this.getEffectiveMenu();
-    if (boostedPatience) customer.patience = 150;
-    return customer;
-  }
-
   // ─────────────────────────────────────────────────────────────────────
   // INTERACTION SYSTEM
   // ─────────────────────────────────────────────────────────────────────
@@ -1523,10 +1117,11 @@ export class GameScene extends Phaser.Scene {
   private scanInteractables(): InteractionContext {
     const px = this.player.x;
     const py = this.player.y;
-    const REACH = 52;
+    const REACH = INTERACTION_REACH;
+    const carriedId = this.player.getCarriedFoodId();
 
     if (this.player.isCarryingFood()) {
-      const trashDist = Phaser.Math.Distance.Between(px, py, this.trashCanX, this.trashCanY);
+      const trashDist = Phaser.Math.Distance.Between(px, py, this.kitchen.trashCanX, this.kitchen.trashCanY);
       if (trashDist < REACH) {
         const foodId = this.player.getCarriedFoodId();
         const item = MENU_ITEMS.find(m => m.id === foodId);
@@ -1534,15 +1129,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    for (const stn of this.stations) {
-      const dist = Phaser.Math.Distance.Between(px, py, stn.worldX, py);
+    for (const stn of this.kitchen.stations) {
+      const dist = Phaser.Math.Distance.Between(px, py, stn.worldX, stn.worldY);
       const vertDist = Math.abs(py - (stn.worldY + TILE));
       if (dist < REACH && vertDist < 40) {
         if (stn.isCooking && stn.cookProgress >= 1) {
-          return { type: 'station', label: `Pick up ${this.getCookingItem(stn)?.name ?? 'order'}`, stationId: stn.id };
+          return { type: 'station', label: `Pick up ${this.kitchen.getReadyItemName(stn.id) ?? 'order'}`, stationId: stn.id };
         }
         if (!stn.isCooking && !this.player.isCarryingFood()) {
-          const pending = this.getPendingOrderForStation(stn.type);
+          const pending = this.kitchen.getPendingOrder(stn.machineId, this.customerSys.customers, carriedId);
           if (pending) {
             return { type: 'station', label: `Cook ${pending.item.name}`, stationId: stn.id };
           }
@@ -1550,12 +1145,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    for (const c of this.customers) {
+    for (const c of this.customerSys.customers) {
       if (!c.active) continue;
       const dist = Phaser.Math.Distance.Between(px, py, c.x, c.y);
       if (dist < REACH) {
         if (c.aiState === 'waiting_order') {
-          return { type: 'customer_order', label: `Take order: ${c.order?.name ?? '?'}`, targetId: c.customerId };
+          if (!c.order) continue;
+          return { type: 'customer_order', label: `Take order: ${c.order.name}`, targetId: c.customerId };
         }
         if (c.aiState === 'waiting_food' && this.player.isCarryingFood()) {
           const carried = this.player.getCarriedFoodId();
@@ -1589,37 +1185,20 @@ export class GameScene extends Phaser.Scene {
       }
 
       case 'station': {
-        const stn = this.stations.find(s => s.id === ctx.stationId);
+        const stn = this.kitchen.stations.find(s => s.id === ctx.stationId);
         if (!stn) return;
         if (stn.isCooking && stn.cookProgress >= 1) {
-          const item = this.getCookingItem(stn);
-          if (item) {
-            this.player.pickUpFood(item.id);
-            stn.isCooking = false;
-            stn.cookProgress = 0;
-            stn.currentOrderId = null;
-            stn.progressBg?.destroy(); stn.progressBg = undefined;
-            stn.progressFill?.destroy(); stn.progressFill = undefined;
-            stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
-            stn.sprite.clearTint();
-            this.playCook();
-          }
+          const itemId = this.kitchen.pickupFromStation(stn.id);
+          if (itemId) { this.player.pickUpFood(itemId); this.playCook(); }
         } else if (!stn.isCooking) {
-          const pending = this.getPendingOrderForStation(stn.type);
-          if (pending) {
-            stn.isCooking = true;
-            stn.cookProgress = 0;
-            stn.cookTargetMs = pending.item.prepTime;
-            stn.currentOrderId = pending.customerId;
-            this.startCookingVisual(stn);
-            this.playCook();
-          }
+          const started = this.kitchen.startCooking(stn.id, this.customerSys.customers, this.player.getCarriedFoodId());
+          if (started) this.playCook();
         }
         break;
       }
 
       case 'customer_order': {
-        const c = this.customers.find(cu => cu.customerId === ctx.targetId);
+        const c = this.customerSys.customers.find(cu => cu.customerId === ctx.targetId);
         if (!c || c.aiState !== 'waiting_order') return;
         c.takeOrder();
         this.showFloatingText(this.player.x, this.player.y - 30, `${c.order?.name ?? 'Order'}`, '#FFEEDD');
@@ -1628,7 +1207,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       case 'customer_deliver': {
-        const c = this.customers.find(cu => cu.customerId === ctx.targetId);
+        const c = this.customerSys.customers.find(cu => cu.customerId === ctx.targetId);
         if (!c || c.aiState !== 'waiting_food') return;
         const carried = this.player.dropFood();
         if (carried && c.order?.id === carried) {
@@ -1651,7 +1230,6 @@ export class GameScene extends Phaser.Scene {
         const cat = this.cats.find(k => k.catId === ctx.targetId);
         if (cat) {
           const lastPet = this.catPetCooldowns.get(cat.catId) ?? -Infinity;
-          const PET_COOLDOWN_MS = 8000;
           if (this.time.now - lastPet < PET_COOLDOWN_MS) {
             this.showFloatingText(cat.x, cat.y - 30, 'Purring...', '#AACCDD');
           } else {
@@ -1667,50 +1245,6 @@ export class GameScene extends Phaser.Scene {
         break;
       }
     }
-  }
-
-  private getPendingOrderForStation(type: 'coffee' | 'stove' | 'prep'): { customerId: number; item: MenuItemDef } | null {
-    const carriedId = this.player?.getCarriedFoodId();
-    for (const c of this.customers) {
-      if (!c.active) continue;
-      if ((c.aiState === 'order_taken' || c.aiState === 'waiting_food') && c.order?.station === type) {
-        if (carriedId && c.order?.id === carriedId) continue; // already being carried by player
-        const alreadyCooking = this.stations.some(s => s.isCooking && s.currentOrderId === c.customerId);
-        if (!alreadyCooking) return { customerId: c.customerId, item: c.order };
-      }
-    }
-    return null;
-  }
-
-  private getCookingItem(stn: Station): MenuItemDef | null {
-    if (!stn.currentOrderId) return null;
-    const c = this.customers.find(cu => cu.customerId === stn.currentOrderId);
-    return c?.order ?? null;
-  }
-
-  private startCookingVisual(stn: Station): void {
-    const barY = stn.worldY - 50;
-    stn.progressBg = this.add.sprite(stn.worldX, barY, 'ui_progress_bg').setDepth(20);
-    stn.progressFill = this.add.graphics().setDepth(21);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // AMBIENT FX
-  // ─────────────────────────────────────────────────────────────────────
-
-  private setupSteam(): void {
-    const coffeeStation = this.stations[0];
-    if (!coffeeStation) return;
-    this.steamEmitter = this.add.particles(coffeeStation.worldX, coffeeStation.worldY - 20, 'particle_steam', {
-      speed: { min: 8, max: 20 },
-      scale: { start: 0.6, end: 0 },
-      alpha: { start: 0.5, end: 0 },
-      lifespan: { min: 600, max: 1200 },
-      frequency: 400,
-      gravityY: -18,
-      angle: { min: -20, max: 20 },
-    });
-    this.steamEmitter.setDepth(6);
   }
 
   private setupSpaceAmbience(): void {
@@ -1745,7 +1279,7 @@ export class GameScene extends Phaser.Scene {
       this.deliveryArrow?.setVisible(false);
       return;
     }
-    const target = this.customers.find(c => c.active && c.aiState === 'waiting_food' && c.order?.id === carriedId);
+    const target = this.customerSys.customers.find(c => c.active && c.aiState === 'waiting_food' && c.order?.id === carriedId);
     if (!target) {
       this.deliveryArrow?.setVisible(false);
       return;
@@ -1807,22 +1341,10 @@ export class GameScene extends Phaser.Scene {
     this.dayPhase = 'night';
     this.player.clearMoveTargets();
 
-    // Clear queue
-    this.queueSprites.forEach(s => s.destroy());
-    this.queueSprites = [];
-    this.queueLabel?.destroy();
-    this.queueLabel = undefined;
-    this.customerQueue = [];
-
-    this.customers.forEach(c => {
-      if (c.active && c.aiState !== 'walking_out' && c.aiState !== 'gone') {
-        c.beginLeave();
-      }
-    });
+    this.customerSys.endDay();
 
     // Record today's stats
     this.popularityHistory.push({ day: this.day, served: this.servedToday, revenue: this.revenueToday });
-    if (this.popularityHistory.length > 7) this.popularityHistory.splice(0, this.popularityHistory.length - 7);
 
     this.time.delayedCall(4000, () => this.showDayEndScreen());
   }
@@ -1831,256 +1353,24 @@ export class GameScene extends Phaser.Scene {
     if (this.dayEndShown) return;
     this.dayEndShown = true;
 
-    const overlay = this.add.graphics().setDepth(200);
-    overlay.fillStyle(0x000000, 0);
-    overlay.fillRect(0, 0, GAME_W, GAME_H);
-    this.tweens.add({ targets: overlay, alpha: 0.78, duration: 1000 });
-
-    const cx = GAME_W / 2;
-    const tier = this.getCurrentTier();
-    const hasBooking = tier.level >= 4;
-    const panelH = hasBooking ? 540 : 500;
-    const panelX = cx - 200;
-    const panelY = hasBooking ? 30 : 50;
-    const panelW = 400;
-
-    const panel = this.add.graphics().setDepth(201);
-    panel.fillStyle(COLORS.UI_PANEL, 1);
-    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 12);
-    panel.lineStyle(2, COLORS.UI_GOLD, 1);
-    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 12);
-
     const avgCatHappiness = this.cats.reduce((s, c) => s + c.happiness, 0) / Math.max(1, this.cats.length);
-    const pY = panelY; // base y offset
-
-    const lines = [
-      { text: `Day ${this.day} Complete!`,                         size: '22px', color: '#FFD700', y: pY + 38 },
-      { text: `Served today: ${this.servedToday}  ·  Earned: ${this.revenueToday} ✦`, size: '12px', color: '#AACCAA', y: pY + 78 },
-      { text: `Reputation: ${this.reputation} / 100`,              size: '13px', color: '#FFE566', y: pY + 98 },
-      { text: `Cat happiness: ${Math.round(avgCatHappiness)}%`,    size: '13px', color: '#FF9AB0', y: pY + 118 },
-      { text: `Bank balance: ${this.money} ✦`,                     size: '16px', color: '#FFD700', y: pY + 142 },
-    ];
-    lines.forEach(l => {
-      const t = this.add.text(cx, l.y, l.text, {
-        fontSize: l.size, color: l.color, fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5).setDepth(202).setAlpha(0);
-      this.tweens.add({ targets: t, alpha: 1, duration: 500, delay: 200 });
-    });
-
-    // ── Popularity sparkline ──────────────────────────────────────
-    const chartTopY = pY + 168;
-    const recentHistory = this.popularityHistory.slice(-5);
-    if (recentHistory.length > 0) {
-      const maxServed = Math.max(1, ...recentHistory.map(h => h.served));
-      const barW = 14, barGap = 5, maxBarH = 22;
-      const totalW = recentHistory.length * (barW + barGap) - barGap;
-      const chartLeft = cx - totalW / 2;
-      const chartG = this.add.graphics().setDepth(202).setAlpha(0);
-      recentHistory.forEach((h, i) => {
-        const bh = Math.max(2, Math.round(h.served / maxServed * maxBarH));
-        const color = h.served >= maxServed * 0.7 ? 0x66CC66 : h.served >= maxServed * 0.4 ? 0xFFAA44 : 0x666688;
-        chartG.fillStyle(color, 0.85);
-        chartG.fillRoundedRect(chartLeft + i * (barW + barGap), chartTopY - bh, barW, bh, 2);
-        chartG.fillStyle(0xFFFFFF, 0.12);
-        chartG.fillRect(chartLeft + i * (barW + barGap), chartTopY - bh, barW, 2);
-      });
-      this.tweens.add({ targets: chartG, alpha: 1, duration: 600, delay: 400 });
-
-      const histLabel = this.add.text(cx, chartTopY + 4, `Last ${recentHistory.length} day${recentHistory.length > 1 ? 's' : ''} — served: ${recentHistory.map(h => h.served).join('  ')}`, {
-        fontSize: '9px', color: '#778866', fontFamily: 'monospace',
-      }).setOrigin(0.5, 0).setDepth(202).setAlpha(0);
-      this.tweens.add({ targets: histLabel, alpha: 1, duration: 600, delay: 500 });
-    }
-
-    // ── Separator + Cat Shop ──────────────────────────────────────
-    const catShopY = chartTopY + (recentHistory.length > 0 ? 34 : 10);
-    const sep = this.add.graphics().setDepth(202);
-    sep.lineStyle(1, COLORS.UI_GOLD, 0.4);
-    sep.lineBetween(cx - 165, catShopY, cx + 165, catShopY);
-
-    this.add.text(cx, catShopY + 6, 'Cat Shop', {
-      fontSize: '14px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 0).setDepth(202);
-
-    this.buildCatShopButtons(cx, catShopY + 28);
-
-    // ── Booking section (tier 4+) ─────────────────────────────────
-    let nextDayBtnY = pY + 462;
-    if (hasBooking) {
-      const bookY = catShopY + 28 + 120;
-      const sep2 = this.add.graphics().setDepth(202);
-      sep2.lineStyle(1, COLORS.UI_GOLD, 0.3);
-      sep2.lineBetween(cx - 165, bookY, cx + 165, bookY);
-
-      this.add.text(cx, bookY + 8, '📋 Reservations for tomorrow', {
-        fontSize: '12px', color: '#88CCFF', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 0).setDepth(202);
-
-      const BOOKING_COST = 25;
-      const MAX_BOOKINGS = 4;
-      const bookings = { count: this.shopState.bookings ?? 0 };
-
-      const bookCountTxt = this.add.text(cx, bookY + 30, '', {
-        fontSize: '14px', color: '#FFE566', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const bookDescTxt = this.add.text(cx, bookY + 52, '', {
-        fontSize: '10px', color: '#998877', fontFamily: 'monospace',
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const refreshBooking = () => {
-        bookCountTxt.setText(`${bookings.count} / ${MAX_BOOKINGS} reserved  (${BOOKING_COST}✦ each)`);
-        const cost = bookings.count * BOOKING_COST;
-        bookDescTxt.setText(bookings.count > 0 ? `Booked guests arrive early with high patience  ·  Cost: ${cost}✦` : 'No reservations yet — guests arrive normally');
-      };
-      refreshBooking();
-
-      // Minus button
-      const minusG = this.add.graphics().setDepth(202);
-      const plusG  = this.add.graphics().setDepth(202);
-      const drawBtns = () => {
-        minusG.clear(); plusG.clear();
-        const canRemove = bookings.count > 0;
-        const canAdd    = bookings.count < MAX_BOOKINGS && this.money >= BOOKING_COST;
-        minusG.fillStyle(canRemove ? COLORS.UI_PANEL_LIGHT : 0x222222, 1);
-        minusG.fillRoundedRect(cx - 80, bookY + 28, 32, 26, 5);
-        minusG.lineStyle(1, canRemove ? COLORS.UI_GOLD : 0x444444, 1);
-        minusG.strokeRoundedRect(cx - 80, bookY + 28, 32, 26, 5);
-        plusG.fillStyle(canAdd ? COLORS.UI_PANEL_LIGHT : 0x222222, 1);
-        plusG.fillRoundedRect(cx + 48, bookY + 28, 32, 26, 5);
-        plusG.lineStyle(1, canAdd ? COLORS.UI_GOLD : 0x444444, 1);
-        plusG.strokeRoundedRect(cx + 48, bookY + 28, 32, 26, 5);
-      };
-      drawBtns();
-
-      this.add.text(cx - 64, bookY + 41, '−', { fontSize: '18px', color: '#FFD700', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(203);
-      this.add.text(cx + 64, bookY + 41, '+', { fontSize: '18px', color: '#FFD700', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(203);
-
-      const minusZone = this.add.zone(cx - 64, bookY + 41, 32, 26).setInteractive({ useHandCursor: true }).setDepth(204);
-      const plusZone  = this.add.zone(cx + 64, bookY + 41, 32, 26).setInteractive({ useHandCursor: true }).setDepth(204);
-
-      minusZone.on('pointerdown', () => {
-        if (bookings.count <= 0) return;
-        bookings.count--;
-        this.money += BOOKING_COST;
-        this.shopState.bookings = bookings.count;
-        refreshBooking(); drawBtns(); this.emitUIUpdate();
-      });
-      plusZone.on('pointerdown', () => {
-        if (bookings.count >= MAX_BOOKINGS || this.money < BOOKING_COST) return;
-        bookings.count++;
-        this.money -= BOOKING_COST;
-        this.shopState.bookings = bookings.count;
-        refreshBooking(); drawBtns(); this.emitUIUpdate();
-      });
-
-      nextDayBtnY = bookY + 96;
-    } else {
-      this.add.text(cx, catShopY + 162, '— Press F during the day to open the Store —', {
-        fontSize: '10px', color: '#887755', fontFamily: 'monospace',
-      }).setOrigin(0.5, 0).setDepth(202);
-    }
-
-    // ── Next Day button ───────────────────────────────────────────
-    const btnY = nextDayBtnY;
-    const btn = this.add.graphics().setDepth(202);
-    const drawBtn = (hover: boolean) => {
-      btn.clear();
-      btn.fillStyle(hover ? 0xCC8800 : COLORS.UI_PANEL_LIGHT, 1);
-      btn.fillRoundedRect(cx - 90, btnY - 20, 180, 44, 8);
-      btn.lineStyle(2, COLORS.UI_GOLD, 1);
-      btn.strokeRoundedRect(cx - 90, btnY - 20, 180, 44, 8);
-    };
-    drawBtn(false);
-
-    const btnTxt = this.add.text(cx, btnY, 'Next Day  →', {
-      fontSize: '18px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(203);
-
-    const btnZone = this.add.zone(cx, btnY, 180, 44).setInteractive({ useHandCursor: true }).setDepth(204);
-    btnZone.on('pointerover', () => { drawBtn(true); btnTxt.setColor('#FFFFFF'); });
-    btnZone.on('pointerout', () => { drawBtn(false); btnTxt.setColor('#FFD700'); });
-    btnZone.on('pointerdown', () => this.startNextDay());
-  }
-
-  private buildCatShopButtons(cx: number, topY: number): void {
-    this.shopRefreshFns = [];
-
-    const GRID = [
-      { bx: cx - 80, by: topY },
-      { bx: cx + 80, by: topY },
-    ];
-
-    SHOP_ITEMS.forEach((item, i) => {
-      const bx = GRID[i].bx;
-      const bw = 130, bh = 108;
-      const by = GRID[i].by;
-
-      const bg = this.add.graphics().setDepth(202);
-
-      const nameTxt = this.add.text(bx, by + 12, item.name, {
-        fontSize: '11px', color: '#FFEEDD', fontFamily: 'monospace', align: 'center',
-        wordWrap: { width: bw - 8 }, stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const costTxt = this.add.text(bx, by + 38, `${item.cost} ✦`, {
-        fontSize: '14px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const countTxt = this.add.text(bx, by + 60, '', {
-        fontSize: '10px', color: '#AAAAAA', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 1,
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const descTxt = this.add.text(bx, by + 78, item.desc, {
-        fontSize: '8px', color: '#778877', fontFamily: 'monospace', align: 'center',
-        wordWrap: { width: bw - 8 },
-      }).setOrigin(0.5, 0).setDepth(203);
-
-      const zone = this.add.zone(bx, by + bh / 2, bw, bh).setInteractive({ useHandCursor: true }).setDepth(204);
-
-      const getCount = () => item.id === 'cat_toy' ? this.shopState.catToys : this.shopState.catTrees;
-      const canBuy = () => this.money >= item.cost && getCount() < item.max;
-
-      const refresh = (hover = false) => {
-        const count = getCount();
-        const affordable = canBuy();
-        bg.clear();
-        bg.fillStyle(hover && affordable ? 0x443300 : affordable ? COLORS.UI_PANEL_LIGHT : 0x1A1008, 1);
-        bg.fillRoundedRect(bx - bw/2, by, bw, bh, 6);
-        bg.lineStyle(1, affordable ? COLORS.UI_GOLD : 0x444422, 1);
-        bg.strokeRoundedRect(bx - bw/2, by, bw, bh, 6);
-        const a = affordable ? 1 : 0.45;
-        nameTxt.setAlpha(a);
-        costTxt.setAlpha(a);
-        descTxt.setAlpha(affordable ? 0.7 : 0.3);
-        countTxt.setText(`${count}/${item.max} owned`).setAlpha(a);
-        costTxt.setColor(affordable ? '#FFD700' : '#777744');
-      };
-
-      this.shopRefreshFns.push(refresh);
-      refresh();
-
-      zone.on('pointerover', () => refresh(true));
-      zone.on('pointerout', () => refresh(false));
-      zone.on('pointerdown', () => {
-        if (!canBuy()) return;
-        this.money -= item.cost;
-        if (item.id === 'cat_toy') this.shopState.catToys++;
-        else this.shopState.catTrees++;
-        this.shopRefreshFns.forEach(fn => fn(false));
-        this.showFloatingText(bx, by - 10, `-${item.cost} ✦`, '#FF8888');
-        this.emitUIUpdate();
-      });
+    const tier = this.getCurrentTier();
+    this.game.events.emit('show_day_report', {
+      day: this.day,
+      servedToday: this.servedToday,
+      revenueToday: this.revenueToday,
+      reputation: this.reputation,
+      avgCatHappiness,
+      money: this.money,
+      popularityHistory: [...this.popularityHistory],
+      tierLevel: tier.level,
+      bookings: this.shopState.bookings ?? 0,
     });
   }
 
   private startNextDay(): void {
+    if (this.isTransitioningDay) return;
+    this.isTransitioningDay = true;
     this.day++;
     this.dayProgress = 0;
     this.dayEnded = false;
@@ -2098,28 +1388,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private spawnBookedGuests(): void {
-    const count = this.shopState.bookings ?? 0;
-    if (count <= 0) return;
-    this.shopState.bookings = 0; // consume bookings
-    for (let i = 0; i < count; i++) {
-      this.time.delayedCall(2000 + i * 2500, () => {
-        if (this.dayEnded) return;
-        const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
-        if (!freeTable) return;
-        const freeSeat = freeTable.seats.find(s => !s.occupied)!;
-        const types: CustomerType[] = ['astronaut', 'scientist', 'tourist', 'worker'];
-        const type = types[Math.floor(Math.random() * types.length)];
-        const customer = this.createCustomerOfType(freeSeat.seatX, freeSeat.seatY, type, true);
-        customer.tableId = freeTable.id;
-        this.customers.push(customer);
-        freeSeat.occupied = true;
-        freeSeat.customerId = customer.customerId;
-        this.physics.add.collider(customer, this.wallGroup);
-        this.showFloatingText(GAME_W / 2, GAME_H / 2 - 40, '★ Reserved guest arrived!', '#88CCFF');
-        this.playChime();
-      });
+  private handleSetBookings(delta: number): void {
+    const current = this.shopState.bookings ?? 0;
+    if (delta < 0) {
+      if (current <= 0) return;
+      this.shopState.bookings = current - 1;
+      this.money += BOOKING_COST;
+    } else {
+      if (current >= MAX_BOOKINGS || this.money < BOOKING_COST) return;
+      this.shopState.bookings = current + 1;
+      this.money -= BOOKING_COST;
     }
+    this.game.events.emit('refresh_day_report', { money: this.money, bookings: this.shopState.bookings });
+    this.emitUIUpdate();
   }
 
   private saveCurrentState(): void {
@@ -2142,18 +1423,22 @@ export class GameScene extends Phaser.Scene {
   // AUDIO
   // ─────────────────────────────────────────────────────────────────────
 
+  private getAudioCtx(): AudioContext | null {
+    try { return this.audioCtx ??= new AudioContext(); }
+    catch { return null; }
+  }
+
   private playTone(freq: number, duration: number, type: OscillatorType = 'sine', vol = 0.08): void {
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = type;
-      gain.gain.setValueAtTime(vol, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration / 1000);
-      osc.start(); osc.stop(ctx.currentTime + duration / 1000);
-    } catch { /* no audio context */ }
+    const ctx = this.getAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    osc.type = type;
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration / 1000);
+    osc.start(); osc.stop(ctx.currentTime + duration / 1000);
   }
 
   private playPop(): void { this.playTone(660, 80, 'sine', 0.06); }
@@ -2168,8 +1453,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // FLOATING TEXT
+  // FLOATING TEXT + TUTORIAL
   // ─────────────────────────────────────────────────────────────────────
+
+  private showTutorialHint(): void {
+    const hints = [
+      { y: GAME_H / 2 - 30, text: 'Walk to a customer and press E to take their order!' },
+      { y: GAME_H / 2 + 10, text: 'Then cook at the matching station and deliver the food.' },
+    ];
+    hints.forEach((h, i) => {
+      const t = this.add.text(GAME_W / 2, h.y, h.text, {
+        fontSize: '13px', color: '#FFD700', fontFamily: 'monospace', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 3, backgroundColor: '#00000066',
+        padding: { x: 8, y: 4 },
+      }).setOrigin(0.5).setDepth(190).setAlpha(0);
+      this.tweens.add({
+        targets: t, alpha: 1, duration: 400, delay: i * 200,
+        onComplete: () => {
+          this.time.delayedCall(4000, () => {
+            this.tweens.add({ targets: t, alpha: 0, duration: 600, onComplete: () => t.destroy() });
+          });
+        },
+      });
+    });
+  }
 
   private showFloatingText(x: number, y: number, text: string, color: string): void {
     const t = this.add.text(x, y, text, {
@@ -2229,8 +1536,8 @@ export class GameScene extends Phaser.Scene {
     this.showTapIndicator(wx, wy);
 
     if (this.player.isCarryingFood()) {
-      if (Phaser.Math.Distance.Between(wx, wy, this.trashCanX, this.trashCanY) < TAP_R * 1.2) {
-        const pts = this.buildWaypointsTo(this.trashCanX, this.trashCanY + TILE * 0.5);
+      if (Phaser.Math.Distance.Between(wx, wy, this.kitchen.trashCanX, this.kitchen.trashCanY) < TAP_R * 1.2) {
+        const pts = this.buildWaypointsTo(this.kitchen.trashCanX, this.kitchen.trashCanY + TILE * 0.5);
         this.player.setMoveTargets(pts, () => {
           this.currentInteraction = this.scanInteractables();
           this.handleInteraction();
@@ -2239,7 +1546,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    for (const c of this.customers) {
+    for (const c of this.customerSys.customers) {
       if (!c.active) continue;
       if (Phaser.Math.Distance.Between(wx, wy, c.x, c.y) < TAP_R) {
         const wantOrder  = c.aiState === 'waiting_order';
@@ -2257,7 +1564,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    for (const stn of this.stations) {
+    for (const stn of this.kitchen.stations) {
       if (Phaser.Math.Distance.Between(wx, wy, stn.worldX, stn.worldY) < TAP_R * 1.5) {
         const destY = stn.worldY + 16;
         const pts = this.buildWaypointsTo(stn.worldX, destY);
@@ -2319,10 +1626,10 @@ export class GameScene extends Phaser.Scene {
     const avgCatHappiness = this.cats.reduce((s, c) => s + c.happiness, 0) / Math.max(1, this.cats.length);
 
     const carriedFoodId = this.player?.getCarriedFoodId() ?? null;
-    const orders: OrderInfo[] = this.customers
+    const orders: OrderInfo[] = this.customerSys.customers
       .filter(c => c.active && (c.aiState === 'order_taken' || c.aiState === 'waiting_food'))
       .map(c => {
-        const cookingStn = this.stations.find(s => s.isCooking && s.currentOrderId === c.customerId);
+        const cookingStn = this.kitchen.stations.find(s => s.isCooking && s.currentOrderId === c.customerId);
         let status: OrderInfo['status'];
         let progress = 0;
         if (carriedFoodId !== null && c.order?.id === carriedFoodId && c.aiState === 'waiting_food') {
@@ -2335,7 +1642,7 @@ export class GameScene extends Phaser.Scene {
         }
         return {
           customerId: c.customerId, tableId: c.tableId,
-          itemName: c.order?.name ?? '?', stationType: c.order?.station ?? '',
+          itemName: c.order?.name ?? '?', stationType: MACHINE_DEFS.find(d => d.id === c.order?.machines?.[0])?.label ?? c.order?.machines?.[0] ?? '',
           status, progress,
         };
       });
@@ -2359,8 +1666,7 @@ export class GameScene extends Phaser.Scene {
       cooks: this.shopState.cooks ?? 0,
       guards: this.shopState.guards ?? 0,
       caterers: this.shopState.caterers ?? 0,
-      extraMachines: this.shopState.extraMachines ?? 0,
-      ownedStations: [...(this.shopState.ownedStations ?? ['coffee'])],
+      ownedMachines: [...(this.shopState.ownedMachines ?? ['espresso_machine'])],
       ownedRecipeIds: [...(this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
       dailyMenuIds: [...(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
     });
@@ -2387,13 +1693,13 @@ export class GameScene extends Phaser.Scene {
 
     this.player.update();
 
-    const customerPositions = this.customers
+    const customerPositions = this.customerSys.customers
       .filter(c => c.active && (c.aiState === 'seated' || c.aiState === 'eating'))
       .map(c => ({ x: c.x, y: c.y, id: c.customerId }));
 
     this.cats.forEach(cat => {
       cat.update(delta, customerPositions);
-      this.customers.forEach(c => {
+      this.customerSys.customers.forEach(c => {
         if (c.active && (c.aiState === 'seated' || c.aiState === 'eating')) {
           if (cat.isNearPosition(c.x, c.y, 36) && cat.happiness > 40) {
             c.boostHappiness(delta * 0.008);
@@ -2402,109 +1708,18 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    const waitingForOrders = this.customers
-      .filter(c => c.active && c.aiState === 'waiting_order')
-      .map(c => ({ customerId: c.customerId, x: c.x, y: c.y }));
-
-    const readyStations: ReadyStation[] = this.stations
-      .filter(s => s.isCooking && s.cookProgress >= 1 && s.currentOrderId !== null)
-      .flatMap(s => {
-        const customer = this.customers.find(
-          c => c.customerId === s.currentOrderId && c.aiState === 'waiting_food',
-        );
-        if (!customer) return [];
-        return [{ stationId: s.id, stationX: s.worldX, stationY: s.worldY + 16, customerId: customer.customerId, customerX: customer.x, customerY: customer.y }];
-      });
+    const waitingForOrders = this.customerSys.getWaitingForOrders();
+    const readyStations = this.kitchen.getReadyStations(this.customerSys.customers);
 
     this.employees.forEach(emp => emp.update(
       delta, waitingForOrders, this.employeeAssignedIds, readyStations, this.employeeDeliveryIds,
     ));
 
-    for (let i = this.customers.length - 1; i >= 0; i--) {
-      const c = this.customers[i];
-      c.update(delta);
-      if (c.aiState === 'gone') {
-        for (const table of this.tables) {
-          const seat = table.seats.find(s => s.customerId === c.customerId);
-          if (seat) { seat.occupied = false; seat.customerId = null; break; }
-        }
-        this.employeeAssignedIds.delete(c.customerId);
-        this.employeeDeliveryIds.delete(c.customerId);
-        c.cleanup();
-        c.destroy();
-        this.customers.splice(i, 1);
-        if (c.happiness < 40) this.reputation = Math.max(0, this.reputation - 1);
-        this.emitUIUpdate();
-        this.tryDequeueCustomer();
-      }
-    }
+    this.customerSys.update(delta, this.dayEnded, this.dayPhase, this.reputation, this.day);
 
-    this.customerSpawnTimer -= delta;
-    if (this.customerSpawnTimer <= 0 && !this.dayEnded) {
-      this.spawnCustomer();
-      this.scheduleNextCustomer();
-    }
 
-    // Cook employee: auto-start cooking
-    if ((this.shopState.cooks ?? 0) > 0) {
-      this.autoCookTimer -= delta;
-      if (this.autoCookTimer <= 0) {
-        this.autoCookTimer = Math.max(800, 4000 - (this.shopState.cooks ?? 0) * 1200);
-        this.tryAutoCook();
-      }
-    }
 
-    this.stations.forEach(stn => {
-      // Pulse blue-white when an order is waiting to be started here
-      if (!stn.isCooking) {
-        const hasPending = this.getPendingOrderForStation(stn.type) !== null;
-        if (hasPending) {
-          const t = (Math.sin(this.time.now * 0.005) + 1) / 2; // 0–1
-          const r = Math.round(0xAA + t * 0x55);
-          const g = Math.round(0xCC + t * 0x33);
-          const b = 0xFF;
-          stn.sprite.setTint((r << 16) | (g << 8) | b);
-        } else {
-          stn.sprite.clearTint();
-        }
-      }
-
-      if (stn.isCooking && stn.cookProgress < 1) {
-        stn.cookProgress = Math.min(1, stn.cookProgress + delta / stn.cookTargetMs);
-        if (stn.progressFill && stn.progressBg) {
-          stn.progressFill.clear();
-          const fillW = Math.round(stn.cookProgress * 44);
-          const fillColor = stn.cookProgress > 0.8 ? 0x66DD66 : 0x44AADD;
-          stn.progressFill.fillStyle(fillColor, 1);
-          stn.progressFill.fillRect(stn.progressBg.x - 22, stn.progressBg.y - 2, fillW, 4);
-        }
-        if (stn.cookProgress >= 1) {
-          stn.progressBg?.destroy(); stn.progressBg = undefined;
-          stn.progressFill?.destroy(); stn.progressFill = undefined;
-          const item = this.getCookingItem(stn);
-          if (item && !stn.readyFoodSprite) {
-            stn.readyFoodSprite = this.add.sprite(stn.worldX, stn.worldY - 42, `food_${item.id}`)
-              .setScale(2.0).setDepth(22);
-            this.tweens.add({
-              targets: stn.readyFoodSprite,
-              y: stn.worldY - 48,
-              duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-            });
-          }
-          stn.sprite.setTint(0x88FF88);
-          this.tweens.add({ targets: stn.sprite, alpha: 0.4, duration: 120, yoyo: true, repeat: 2 });
-          this.playChime();
-          // Send the assigned cook back home
-          const npc = this.cookNpcs.find(c => c.assignedStationId === stn.id);
-          if (npc) this.moveCookHome(npc);
-        }
-      }
-    });
-
-    // Keep cook NPC name badges above their sprites
-    for (const npc of this.cookNpcs) {
-      npc.badge.setPosition(npc.sprite.x, npc.sprite.y - 24);
-    }
+    this.kitchen.update(delta, this.customerSys.customers, this.player.getCarriedFoodId());
 
     const ctx = this.scanInteractables();
     this.currentInteraction = ctx;
