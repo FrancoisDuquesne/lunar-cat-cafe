@@ -464,15 +464,24 @@
     }
 
     .ov-card-manage {
+      display: inline-block;
       font-size: calc(10px * var(--gs));
       color: var(--c-gold);
       cursor: pointer;
       margin-top: calc(9px * var(--gs));
-      opacity: 0.65;
-      transition: opacity 0.14s;
+      opacity: 0.75;
+      transition: opacity 0.14s, background 0.14s, border-color 0.14s;
       font-family: 'Space Mono', monospace;
+      border: 1px solid rgba(240,192,24,0.28);
+      border-radius: calc(6px * var(--gs));
+      padding: calc(4px * var(--gs)) calc(10px * var(--gs));
+      background: rgba(240,192,24,0.06);
     }
-    .ov-card-manage:hover { opacity: 1; }
+    .ov-card-manage:hover {
+      opacity: 1;
+      background: rgba(240,192,24,0.14);
+      border-color: rgba(240,192,24,0.55);
+    }
 
     .ov-empty-hint {
       font-size: calc(10px * var(--gs));
@@ -760,6 +769,63 @@
       font-family: 'Space Mono', monospace;
       line-height: 2;
     }
+
+    /* ── KITCHEN CAPACITY WARNING ───────────────────────────── */
+    #kitchen-cap-warning {
+      position: fixed;
+      top: calc(68px * var(--gs));
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(200,80,20,0.88);
+      color: #fff;
+      font-family: 'Space Mono', monospace;
+      font-size: calc(10px * var(--gs));
+      font-weight: 700;
+      padding: calc(5px * var(--gs)) calc(14px * var(--gs));
+      border-radius: calc(20px * var(--gs));
+      pointer-events: none;
+      z-index: 120;
+      white-space: nowrap;
+      box-shadow: 0 calc(2px * var(--gs)) calc(8px * var(--gs)) rgba(0,0,0,0.5);
+    }
+    #kitchen-cap-warning::before { content: '⚠ Kitchen full — orders queued'; }
+
+    /* ── CONTEXTUAL HINT BANNER ──────────────────────────────── */
+    #contextual-hint {
+      position: fixed;
+      bottom: calc(28px * var(--gs));
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,15,40,0.92);
+      border: 1px solid rgba(240,192,24,0.4);
+      color: var(--c-gold);
+      font-family: 'Space Mono', monospace;
+      font-size: calc(10px * var(--gs));
+      padding: calc(8px * var(--gs)) calc(16px * var(--gs));
+      border-radius: calc(8px * var(--gs));
+      pointer-events: none;
+      z-index: 120;
+      max-width: calc(380px * var(--gs));
+      text-align: center;
+      line-height: 1.5;
+      box-shadow: 0 calc(3px * var(--gs)) calc(14px * var(--gs)) rgba(0,0,0,0.6);
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+    #contextual-hint.visible { opacity: 1; }
+
+    /* ── DAY REPORT UPGRADE HINT ─────────────────────────────── */
+    #dr-upgrade-hint {
+      background: rgba(240,192,24,0.08);
+      border: 1px solid rgba(240,192,24,0.22);
+      border-radius: calc(8px * var(--gs));
+      padding: calc(10px * var(--gs)) calc(14px * var(--gs));
+      font-size: calc(11px * var(--gs));
+      color: var(--c-text-dim);
+      line-height: 1.5;
+      margin-bottom: calc(10px * var(--gs));
+    }
+    #dr-upgrade-hint strong { color: var(--c-gold); }
 
     /* ── DAY REPORT OVERLAY ──────────────────────────────────── */
     #day-report {
@@ -1337,7 +1403,7 @@
 
       <!-- Time remaining + bar -->
       <div id="hud-time-block">
-        <span id="time-remaining">5:00</span>
+        <span id="time-remaining" style="display:none">5:00</span>
         <div id="day-bar-track"><div id="day-bar-fill"></div></div>
       </div>
 
@@ -1365,9 +1431,9 @@
 
       <div class="hud-sep"></div>
 
-      <!-- Cat happiness -->
-      <div class="hud-stat">
-        <svg class="hud-svg" viewBox="0 0 20 20" fill="none">
+      <!-- Cat happiness (secondary stat — smaller) -->
+      <div class="hud-stat" style="opacity:0.65" title="Cat happiness — happy cats boost customer mood and patience">
+        <svg class="hud-svg" viewBox="0 0 20 20" fill="none" style="width:calc(12px * var(--gs));height:calc(12px * var(--gs))">
           <polygon points="5,10 7,4 9,9" fill="#C05010"/>
           <polygon points="11,9 13,4 15,10" fill="#C05010"/>
           <circle cx="10" cy="13" r="6" fill="#D06818"/>
@@ -1377,7 +1443,7 @@
           <circle cx="12.4" cy="11.4" r="0.5" fill="#fff"/>
           <path d="M8.5 15 Q10 16.2 11.5 15" stroke="#FF6677" stroke-width="1" fill="none" stroke-linecap="round"/>
         </svg>
-        <span class="hud-val" id="stat-cat">80%</span>
+        <span class="hud-val" id="stat-cat" style="font-size:calc(11px * var(--gs))">80%</span>
       </div>
 
       <!-- Spacer pushes tier + buttons to right -->
@@ -1434,6 +1500,12 @@
     <!-- ── ORDERS STRIP ───────────────────────────────────── -->
     <div id="orders-strip"></div>
 
+    <!-- ── KITCHEN CAPACITY WARNING ──────────────────────────── -->
+    <div id="kitchen-cap-warning" style="display:none"></div>
+
+    <!-- ── CONTEXTUAL HINT BANNER ────────────────────────────── -->
+    <div id="contextual-hint"></div>
+
     <!-- ── MANAGER BACKDROP ─────────────────────────────────── -->
     <div id="manager-backdrop"></div>
 
@@ -1470,6 +1542,7 @@
         <div class="dr-stats-grid" id="dr-stats"></div>
         <div class="dr-sep"></div>
         <div id="dr-chart-section"></div>
+        <div id="dr-upgrade-hint" style="display:none"></div>
         <div id="dr-bookings-section"></div>
         <button id="dr-next-day">Next Day  →</button>
       </div>

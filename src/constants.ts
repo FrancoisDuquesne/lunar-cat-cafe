@@ -135,16 +135,24 @@ export interface TableSlotDef {
   cost: number;
   name: string;
   seats: number;
+  requiresExpansionId?: string;
 }
 
 // Pre-placed starter tables inside the base shack (cols 10-19, dining rows 7-12).
 // Convention: wx = (col+1)*TILE, so the table sprite center is at col+1.
 // Players begin with ownedTableSlotIds: [0, 1].
+// IDs 4-7 are in the expansion wings and require the matching expansion to be owned.
 export const TABLE_SLOT_DEFS: TableSlotDef[] = [
-  { id: 0, col: 11, row: 8,  type: 'single', cost: 0,   name: 'Café Table',  seats: 1 },
-  { id: 1, col: 16, row: 8,  type: 'single', cost: 0,   name: 'Café Table',  seats: 1 },
-  { id: 2, col: 11, row: 11, type: 'single', cost: 200, name: 'Back Table',  seats: 1 },
-  { id: 3, col: 16, row: 11, type: 'single', cost: 200, name: 'Back Table',  seats: 1 },
+  { id: 0, col: 11, row: 8,  type: 'single', cost: 0,   name: 'Café Table',         seats: 1 },
+  { id: 1, col: 16, row: 8,  type: 'single', cost: 0,   name: 'Café Table',         seats: 1 },
+  { id: 2, col: 11, row: 11, type: 'single', cost: 200, name: 'Back Table',         seats: 1 },
+  { id: 3, col: 16, row: 11, type: 'single', cost: 200, name: 'Back Table',         seats: 1 },
+  // Left annex (expansion_left) — col 6 places table sprite at col 7, within the left wing floor
+  { id: 4, col: 6, row: 9,  type: 'single', cost: 200, name: 'Left Wing Table A',  seats: 1, requiresExpansionId: 'expansion_left' },
+  { id: 5, col: 6, row: 11, type: 'single', cost: 200, name: 'Left Wing Table B',  seats: 1, requiresExpansionId: 'expansion_left' },
+  // Right annex (expansion_right) — col 20 places table sprite at col 21, within the right wing floor
+  { id: 6, col: 20, row: 9,  type: 'single', cost: 200, name: 'Right Wing Table A', seats: 1, requiresExpansionId: 'expansion_right' },
+  { id: 7, col: 20, row: 11, type: 'single', cost: 200, name: 'Right Wing Table B', seats: 1, requiresExpansionId: 'expansion_right' },
 ];
 
 // ─── EXPANSION ZONES ──────────────────────────────────────────────────────────
@@ -342,6 +350,9 @@ export const DAILY_RENT_TABLE: ReadonlyArray<{ fromDay: number; rent: number }> 
   { fromDay: 3,  rent: 80  },
   { fromDay: 6,  rent: 120 },
   { fromDay: 10, rent: 160 },
+  { fromDay: 15, rent: 220 },
+  { fromDay: 20, rent: 300 },
+  { fromDay: 28, rent: 390 },
 ] as const;
 
 export function getDailyRent(day: number): number {

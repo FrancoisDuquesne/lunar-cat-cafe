@@ -80,6 +80,7 @@ export interface InteractionContext {
   label: string;
   targetId?: number;
   stationId?: number;
+  secondaryLabel?: string;
 }
 
 // Typed command bus: UIOverlay → GameScene via game.events.emit('game_event', cmd)
@@ -97,4 +98,5 @@ export type GameCommand =
   | { type: 'tier_changed'; tierName: string; tierLevel: number }
   | { type: 'toggle_build_mode' }
   | { type: 'set_build_mode_active'; active: boolean }
-  | { type: 'buy_expansion'; zoneId: string };
+  | { type: 'buy_expansion'; zoneId: string }
+  | { type: 'fire_staff'; role: EmployeeRole };

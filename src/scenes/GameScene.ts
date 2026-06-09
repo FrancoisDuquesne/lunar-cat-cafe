@@ -109,6 +109,8 @@ export class GameScene extends Phaser.Scene {
   private customerPathfinder!: Pathfinder;
   private audioCtx: AudioContext | null = null;
   private deliveryArrow?: Phaser.GameObjects.Text;
+  private deliveryGlow?: Phaser.GameObjects.Graphics;
+  private deliveryGlowTarget = -1;
   private catPetCooldowns = new Map<number, number>();
   private employeeDeliveryIds = new Set<number>();
 
@@ -122,6 +124,7 @@ export class GameScene extends Phaser.Scene {
   private occupiedDecoTiles = new Set<string>();
   private hardBlockedTiles = new Set<string>();
   private currentTierLevel = 1;
+  private startOfDayExpansionIds: Set<string> = new Set();
   // Placed-table tracking (for removal support)
   private tableFurnitureBodies = new Map<string, Phaser.Physics.Arcade.Image>();
   private tableChairSprites   = new Map<string, Phaser.GameObjects.Image[]>();
@@ -195,8 +198,9 @@ export class GameScene extends Phaser.Scene {
 
     // Rebuild MAP from BASE_MAP, then apply owned expansion patches
     MAP = BASE_MAP.map(r => [...r]);
+    this.startOfDayExpansionIds = new Set(this.shopState.ownedExpansionIds ?? []);
     for (const zone of EXPANSION_ZONES) {
-      if ((this.shopState.ownedExpansionIds ?? []).includes(zone.id)) {
+      if (this.startOfDayExpansionIds.has(zone.id)) {
         for (const patch of zone.patches) {
           MAP[patch.row][patch.col] = patch.tile;
         }
@@ -233,6 +237,7 @@ export class GameScene extends Phaser.Scene {
 
     this.spawnCats(saved.cats);
     this.spawnEmployees();
+    this.spawnPassiveStaff();
     this.kitchen.spawnCooks(this.employees.length);
     this.kitchen.setupSteam();
     this.setupSpaceAmbience();
@@ -337,6 +342,8 @@ export class GameScene extends Phaser.Scene {
         this.toggleBuildMode();
       } else if (cmd.type === 'buy_expansion') {
         this.handleBuyExpansion(cmd.zoneId);
+      } else if (cmd.type === 'fire_staff') {
+        this.handleFireStaff(cmd.role);
       }
     }, this);
 
@@ -403,7 +410,10 @@ export class GameScene extends Phaser.Scene {
   private buildFurniture(): void {
     this.furnitureGroup = this.physics.add.staticGroup();
     const owned = new Set(this.shopState.ownedTableSlotIds ?? [0, 1, 2]);
-    TABLE_SLOT_DEFS.filter(s => owned.has(s.id)).forEach(slot => this.buildTableSlot(slot));
+    const ownedExpansions = new Set(this.shopState.ownedExpansionIds ?? []);
+    TABLE_SLOT_DEFS
+      .filter(s => owned.has(s.id) && (!s.requiresExpansionId || ownedExpansions.has(s.requiresExpansionId)))
+      .forEach(slot => this.buildTableSlot(slot));
   }
 
   private buildTableSlot(slot: TableSlotDef): void {
@@ -711,7 +721,10 @@ export class GameScene extends Phaser.Scene {
   private buildHardBlockedTiles(): void {
     // Mark tiles under owned furniture as decoration-blocked
     const owned = new Set(this.shopState.ownedTableSlotIds ?? [0, 1, 2]);
-    TABLE_SLOT_DEFS.filter(s => owned.has(s.id)).forEach(slot => {
+    const ownedExpansions = new Set(this.shopState.ownedExpansionIds ?? []);
+    TABLE_SLOT_DEFS
+      .filter(s => owned.has(s.id) && (!s.requiresExpansionId || ownedExpansions.has(s.requiresExpansionId)))
+      .forEach(slot => {
       const c = slot.col;
       const r = slot.row;
       if (slot.type === 'single') {
@@ -1293,6 +1306,10 @@ export class GameScene extends Phaser.Scene {
     const slot = TABLE_SLOT_DEFS.find(s => s.id === slotId);
     if (!slot || slot.cost === 0) return;
     if ((this.shopState.ownedTableSlotIds ?? []).includes(slotId)) return;
+    if (slot.requiresExpansionId && !(this.shopState.ownedExpansionIds ?? []).includes(slot.requiresExpansionId)) {
+      this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Expansion required', '#FF6666');
+      return;
+    }
     if (this.money < slot.cost) {
       this.showFloatingText(GAME_W / 2, GAME_H / 2, 'Not enough ✦', '#FF6666');
       return;
@@ -1322,6 +1339,10 @@ export class GameScene extends Phaser.Scene {
       this.spawnOneEmployee(this.shopState.employees - 1);
     } else if (role === 'cook') {
       this.kitchen.spawnOneCook(this.shopState.cooks - 1, this.employees.length);
+    } else if (role === 'guard') {
+      this.spawnPassiveNpc(10 * TILE + TILE / 2, 12 * TILE + TILE / 2, 'Guard', '#6688DD');
+    } else if (role === 'caterer') {
+      this.spawnPassiveNpc(19 * TILE + TILE / 2, 12 * TILE + TILE / 2, 'Caterer', '#DD88CC');
     }
 
     this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} hired!`, '#60FF88');
@@ -1420,6 +1441,24 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private handleFireStaff(role: EmployeeRole): void {
+    const def = EMPLOYEE_TYPES.find(e => e.role === role);
+    if (!def) return;
+    const current = this.getStaffCount(role);
+    if (current <= 0) return;
+    const refund = Math.floor(def.cost * 0.5);
+    switch (role) {
+      case 'waiter':  this.shopState.employees = current - 1; break;
+      case 'cook':    this.shopState.cooks     = current - 1; break;
+      case 'guard':   this.shopState.guards    = current - 1; break;
+      case 'caterer': this.shopState.caterers  = current - 1; break;
+    }
+    this.money += refund;
+    this.showFloatingText(GAME_W / 2 - 150, GAME_H / 2 + 20, `${def.name} let go (+${refund} ✦)`, '#FFAA66');
+    this.saveCurrentState();
+    this.emitUIUpdate();
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // CATS
   // ─────────────────────────────────────────────────────────────────────
@@ -1449,6 +1488,26 @@ export class GameScene extends Phaser.Scene {
   private spawnEmployees(): void {
     for (let i = 0; i < (this.shopState.employees ?? 0); i++) {
       this.spawnOneEmployee(i);
+    }
+  }
+
+  // Passive visual-only NPCs for guard and caterer (no AI, no physics)
+  private spawnPassiveNpc(x: number, y: number, label: string, color: string): void {
+    this.add.sprite(x, y, 'player_employee')
+      .setOrigin(0.5, 0.9)
+      .setDepth(10 + y / 1000);
+    this.add.text(x, y - 24, label, {
+      fontSize: '8px', color, fontFamily: 'monospace',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 1).setDepth(11);
+  }
+
+  private spawnPassiveStaff(): void {
+    if ((this.shopState.guards ?? 0) > 0) {
+      this.spawnPassiveNpc(10 * TILE + TILE / 2, 12 * TILE + TILE / 2, 'Guard', '#6688DD');
+    }
+    if ((this.shopState.caterers ?? 0) > 0) {
+      this.spawnPassiveNpc(19 * TILE + TILE / 2, 12 * TILE + TILE / 2, 'Caterer', '#DD88CC');
     }
   }
 
@@ -1516,38 +1575,49 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    let primaryStation: InteractionContext | null = null;
     for (const stn of this.kitchen.stations) {
       const dist = Phaser.Math.Distance.Between(px, py, stn.worldX, stn.worldY);
       const vertDist = Math.abs(py - (stn.worldY + TILE));
       if (dist < REACH && vertDist < 40) {
         if (stn.isCooking && stn.cookProgress >= 1) {
-          return { type: 'station', label: `Pick up ${this.kitchen.getReadyItemName(stn.id) ?? 'order'}`, stationId: stn.id };
+          primaryStation = { type: 'station', label: `Pick up ${this.kitchen.getReadyItemName(stn.id) ?? 'order'}`, stationId: stn.id };
+          break;
         }
         if (!stn.isCooking && !this.player.isCarryingFood()) {
           const pending = this.kitchen.getPendingOrder(stn.machineId, this.customerSys.customers, carriedId);
           if (pending) {
-            return { type: 'station', label: `Cook ${pending.item.name}`, stationId: stn.id };
+            primaryStation = { type: 'station', label: `Cook ${pending.item.name}`, stationId: stn.id };
+            break;
           }
         }
       }
     }
 
+    let primaryCustomer: InteractionContext | null = null;
     for (const c of this.customerSys.customers) {
       if (!c.active) continue;
       const dist = Phaser.Math.Distance.Between(px, py, c.x, c.y);
       if (dist < REACH) {
-        if (c.aiState === 'waiting_order') {
-          if (!c.order) continue;
-          return { type: 'customer_order', label: `Take order: ${c.order.name}`, targetId: c.customerId };
+        if (c.aiState === 'waiting_order' && c.order) {
+          primaryCustomer = { type: 'customer_order', label: `Take order: ${c.order.name}`, targetId: c.customerId };
+          break;
         }
         if (c.aiState === 'waiting_food' && this.player.isCarryingFood()) {
           const carried = this.player.getCarriedFoodId();
           if (carried && c.order?.id === carried) {
-            return { type: 'customer_deliver', label: `Deliver ${c.order.name}`, targetId: c.customerId };
+            primaryCustomer = { type: 'customer_deliver', label: `Deliver ${c.order.name}`, targetId: c.customerId };
+            break;
           }
         }
       }
     }
+
+    if (primaryStation && primaryCustomer) {
+      return { ...primaryStation, secondaryLabel: primaryCustomer.label };
+    }
+    if (primaryStation) return primaryStation;
+    if (primaryCustomer) return primaryCustomer;
 
     for (const cat of this.cats) {
       const dist = Phaser.Math.Distance.Between(px, py, cat.x, cat.y);
@@ -1741,23 +1811,41 @@ export class GameScene extends Phaser.Scene {
     const carriedId = this.player?.getCarriedFoodId();
     if (!carriedId) {
       this.deliveryArrow?.setVisible(false);
+      this.deliveryGlow?.setVisible(false);
+      this.deliveryGlowTarget = -1;
       return;
     }
     const target = this.customerSys.customers.find(c => c.active && c.aiState === 'waiting_food' && c.order?.id === carriedId);
     if (!target) {
       this.deliveryArrow?.setVisible(false);
+      this.deliveryGlow?.setVisible(false);
+      this.deliveryGlowTarget = -1;
       return;
     }
 
     if (!this.deliveryArrow) {
       this.deliveryArrow = this.add.text(0, 0, '▼', {
-        fontSize: '14px', color: '#FFD700', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 2,
+        fontSize: '20px', color: '#FFD700', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5, 1).setDepth(55);
     }
 
-    const bounce = Math.sin(this.time.now * 0.006) * 3;
-    this.deliveryArrow.setPosition(target.x, target.y - 56 + bounce).setVisible(true);
+    if (!this.deliveryGlow) {
+      this.deliveryGlow = this.add.graphics().setDepth(7);
+    }
+
+    const bounce = Math.sin(this.time.now * 0.006) * 4;
+    this.deliveryArrow.setPosition(target.x, target.y - 62 + bounce).setVisible(true);
+
+    // Pulsing glow ring under the target customer
+    if (this.deliveryGlowTarget !== target.customerId) {
+      this.deliveryGlowTarget = target.customerId;
+    }
+    const pulse = 0.35 + Math.sin(this.time.now * 0.005) * 0.25;
+    this.deliveryGlow.clear();
+    this.deliveryGlow.lineStyle(3, 0xFFD700, pulse);
+    this.deliveryGlow.strokeCircle(target.x, target.y, 18);
+    this.deliveryGlow.setPosition(0, 0).setVisible(true);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1765,28 +1853,41 @@ export class GameScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────
 
   private showInteractionPrompt(ctx: InteractionContext): void {
+    const hasSecondary = !!ctx.secondaryLabel;
+    const h = hasSecondary ? 48 : 32;
     if (!this.interactionPrompt) {
       const container = this.add.container(0, 0).setDepth(100);
       const bg = this.add.graphics();
-      bg.fillStyle(COLORS.UI_PANEL, 0.92);
-      bg.fillRoundedRect(0, 0, 240, 32, 6);
-      bg.lineStyle(1, COLORS.UI_GOLD, 0.8);
-      bg.strokeRoundedRect(0, 0, 240, 32, 6);
       const prompt = this.add.sprite(10, 16, 'ui_e_prompt').setOrigin(0, 0.5).setScale(0.9);
       const txt = this.add.text(38, 16, '', {
         fontSize: '12px', color: '#FFEEDD', fontFamily: 'monospace',
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0, 0.5);
-      container.add([bg, prompt, txt]);
+      const secondary = this.add.text(38, 34, '', {
+        fontSize: '10px', color: '#AAAAAA', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 1,
+      }).setOrigin(0, 0.5);
+      container.add([bg, prompt, txt, secondary]);
+      container.setData('bg', bg);
       container.setData('txt', txt);
-      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 240, 32), Phaser.Geom.Rectangle.Contains);
+      container.setData('secondary', secondary);
+      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 240, 48), Phaser.Geom.Rectangle.Contains);
       container.on('pointerdown', () => this.handleInteraction());
       this.interactionPrompt = container;
     }
+    const bg = this.interactionPrompt.getData('bg') as Phaser.GameObjects.Graphics;
     const txt = this.interactionPrompt.getData('txt') as Phaser.GameObjects.Text;
+    const secondary = this.interactionPrompt.getData('secondary') as Phaser.GameObjects.Text;
+    bg.clear();
+    bg.fillStyle(COLORS.UI_PANEL, 0.92);
+    bg.fillRoundedRect(0, 0, 240, h, 6);
+    bg.lineStyle(1, COLORS.UI_GOLD, 0.8);
+    bg.strokeRoundedRect(0, 0, 240, h, 6);
     txt.setText(ctx.label);
+    secondary.setText(ctx.secondaryLabel ? `also nearby: ${ctx.secondaryLabel}` : '');
+    secondary.setVisible(hasSecondary);
     const promptX = Phaser.Math.Clamp(this.player.x - 120, 4, GAME_W - 244);
-    const promptY = Phaser.Math.Clamp(this.player.y - 56, 60, GAME_H - 36);
+    const promptY = Phaser.Math.Clamp(this.player.y - (hasSecondary ? 68 : 56), 60, GAME_H - h - 4);
     this.interactionPrompt.setPosition(promptX, promptY);
     this.interactionPrompt.setVisible(true);
   }
@@ -1830,6 +1931,7 @@ export class GameScene extends Phaser.Scene {
       tierLevel: tier.level,
       bookings: this.shopState.bookings ?? 0,
       rentDue: getDailyRent(this.day),
+      ambiance: this.computeAmbiance(),
     });
   }
 
@@ -2252,6 +2354,9 @@ export class GameScene extends Phaser.Scene {
       ownedRecipeIds: [...(this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
       dailyMenuIds: [...(this.shopState.dailyMenuIds ?? this.shopState.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte'])],
       ownedExpansionIds: [...(this.shopState.ownedExpansionIds ?? [])],
+      pendingExpansionIds: (this.shopState.ownedExpansionIds ?? []).filter(id => !this.startOfDayExpansionIds.has(id)),
+      kitchenAtCapacity: this.kitchen.stations.every(s => s.isCooking) &&
+        orders.some(o => o.status === 'queued'),
     });
   }
 

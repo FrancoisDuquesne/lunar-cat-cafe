@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   EMPLOYEE_TYPES, DECORATION_ITEMS, CAFE_TIERS, MENU_ITEMS,
   DecorationCategory, EmployeeRole, MACHINE_DEFS, EXPANSION_ZONES,
-  BOOKING_COST, MAX_BOOKINGS,
+  BOOKING_COST, MAX_BOOKINGS, TABLE_SLOT_DEFS,
 } from '../constants';
 import type { OrderInfo, MenuItemDef } from '../types';
 import { isSoundEnabled, setSoundEnabled } from '../audio';
@@ -18,6 +18,7 @@ export interface DayReportData {
   tierLevel: number;
   bookings: number;
   rentDue: number;
+  ambiance?: number;
 }
 import { touchControls } from './TouchControls';
 
@@ -42,6 +43,8 @@ export interface UIState {
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
   ownedExpansionIds?: string[];
+  pendingExpansionIds?: string[];
+  kitchenAtCapacity?: boolean;
 }
 
 type ManagerSection = 'overview' | 'furnish' | 'kitchen' | 'staff' | 'menu' | 'expand';
@@ -371,6 +374,8 @@ class UIOverlay {
   private drBookings = 0;
   private drMoney = 0;
   private drTierLevel = 0;
+  private seenHints = new Set<string>();
+  private hintTimeout: ReturnType<typeof setTimeout> | null = null;
 
   init(game: Phaser.Game): void {
     if (this.game) return;
@@ -497,7 +502,7 @@ class UIOverlay {
   refreshDayReport(money: number, bookings: number): void {
     this.drMoney = money;
     this.drBookings = bookings;
-    if (this.drTierLevel >= 4) this.renderDrBookings(money, bookings);
+    if (this.drTierLevel >= 2) this.renderDrBookings(money, bookings);
   }
 
   private renderDayReport(d: DayReportData): void {
@@ -528,13 +533,30 @@ class UIOverlay {
       </div>
       <div class="dr-stat" style="grid-column:1/-1">
         <div class="dr-stat-label">Balance after rent</div>
-        <div class="dr-stat-val ${struggling ? '' : 'gold'}" style="${struggling ? 'color:#FF4444' : ''};font-size:calc(20px * var(--gs))">${balanceAfterRent} ✦${struggling ? '  ⚠ STRUGGLING' : ''}</div>
+        <div class="dr-stat-val ${struggling ? '' : 'gold'}" style="${struggling ? 'color:#FF4444' : ''};font-size:calc(20px * var(--gs))">${balanceAfterRent} ✦${struggling ? '  ⚠ STRUGGLING — −5 rep deducted' : ''}</div>
       </div>`;
 
     this.renderDrChart(d);
 
+    // Upgrade hint
+    const hintEl = document.getElementById('dr-upgrade-hint');
+    if (hintEl) {
+      const ambiance = d.ambiance ?? 0;
+      const nextTier = CAFE_TIERS.find(t => t.level === d.tierLevel + 1);
+      if (nextTier && nextTier.ambianceRequired > ambiance) {
+        const gap = nextTier.ambianceRequired - ambiance;
+        hintEl.innerHTML = `💡 You need <strong>${gap} more ambiance</strong> to reach <strong>${nextTier.name}</strong> — place more decorations to unlock new menu items.`;
+        hintEl.style.display = '';
+      } else if (nextTier && nextTier.ambianceRequired <= ambiance) {
+        hintEl.innerHTML = `✨ You have enough ambiance to reach <strong>${nextTier.name}</strong>! Check the Furnish tab to see what&apos;s next.`;
+        hintEl.style.display = '';
+      } else {
+        hintEl.style.display = 'none';
+      }
+    }
+
     const bookSection = document.getElementById('dr-bookings-section')!;
-    if (d.tierLevel >= 4) {
+    if (d.tierLevel >= 2) {
       bookSection.innerHTML = '<div class="dr-sep" style="margin-bottom:calc(12px * var(--gs))"></div><div id="dr-bookings-inner"></div>';
       this.renderDrBookings(d.money, d.bookings);
     } else {
@@ -674,7 +696,7 @@ class UIOverlay {
       case 'overview':
         return `${s.tierLevel}|${s.ambiance}|${s.money}|${s.employees}|${s.cooks}|${s.guards}|${s.caterers}|${(s.dailyMenuIds ?? []).join(',')}`;
       case 'furnish':
-        return `${this.activeFurnishTab}|${s.tierLevel}|${s.ambiance}|${s.money}`;
+        return `${this.activeFurnishTab}|${s.tierLevel}|${s.ambiance}|${s.money}|${(s.ownedExpansionIds ?? []).join(',')}|${(s.ownedTableSlotIds ?? []).join(',')}`;
       case 'kitchen':
         return `${(s.ownedMachines ?? []).join(',')}|${s.money}`;
       case 'staff':
@@ -682,7 +704,7 @@ class UIOverlay {
       case 'menu':
         return `${s.tierLevel}|${s.money}|${(s.ownedMachines ?? []).join(',')}|${(s.ownedRecipeIds ?? []).join(',')}|${(s.dailyMenuIds ?? []).join(',')}`;
       case 'expand':
-        return `${s.money}|${s.reputation}|${(s.ownedExpansionIds ?? []).join(',')}`;
+        return `${s.money}|${s.reputation}|${(s.ownedExpansionIds ?? []).join(',')}|${(s.pendingExpansionIds ?? []).join(',')}`;
     }
   }
 
@@ -847,7 +869,7 @@ class UIOverlay {
     if (this.activeFurnishTab === 'seating') {
       html += `<p class="sp-meta">Buy to place a table — click on any floor tile</p>`;
     } else {
-      html += `<p class="sp-meta">Buy to enter placement mode · tap placed item to sell</p>`;
+      html += `<p class="sp-meta">Buy to enter placement mode. <strong>To remove a placed item</strong>: press <kbd style="background:rgba(255,255,255,0.12);border-radius:3px;padding:0 4px">B</kbd> for Build Mode, hover the item, then press <kbd style="background:rgba(255,255,255,0.12);border-radius:3px;padding:0 4px">Del</kbd> or tap the item.</p>`;
     }
 
     const items = DECORATION_ITEMS.filter(d =>
@@ -869,6 +891,30 @@ class UIOverlay {
           attr: `data-place-decor="${item.id}"`, btnLabel: 'Place',
         });
       });
+    }
+
+    // Expansion wing table slots — only shown after buying an expansion
+    if (this.activeFurnishTab === 'seating') {
+      const ownedExpansions = new Set<string>(s.ownedExpansionIds ?? []);
+      const ownedSlotIds = new Set<number>(s.ownedTableSlotIds ?? []);
+      const expansionSlots = TABLE_SLOT_DEFS.filter(sl =>
+        sl.requiresExpansionId != null &&
+        ownedExpansions.has(sl.requiresExpansionId) &&
+        !ownedSlotIds.has(sl.id),
+      );
+      if (expansionSlots.length > 0) {
+        html += `<p class="sp-meta" style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px">Fixed spots in your expansion wing.</p>`;
+        expansionSlots.forEach(slot => {
+          const can = s.money >= slot.cost;
+          html += this.itemCard({
+            icon: ITEM_ICONS['obj_table'],
+            name: slot.name,
+            desc: `${slot.seats} seat · pre-built position in the annex`,
+            cost: slot.cost, can, owned: false,
+            attr: `data-buy-slot="${slot.id}"`, btnLabel: 'Buy',
+          });
+        });
+      }
     }
 
     this.managerContentEl.innerHTML = html;
@@ -911,17 +957,24 @@ class UIOverlay {
       const current = this.getCount(s, emp.role);
       const maxed = current >= emp.max;
       const can = !maxed && s.money >= emp.cost;
-      html += this.itemCard({
-        icon: ROLE_ICONS[emp.role],
-        name: emp.name,
-        desc: `${emp.desc} · ${current}/${emp.max} hired`,
-        cost: emp.cost,
-        can: can && !maxed,
-        owned: false,
-        disabled: maxed,
-        attr: `data-hire-staff="${emp.role}"`,
-        btnLabel: maxed ? 'Full' : 'Hire',
-      });
+      const fireBtn = current > 0
+        ? `<button class="si-btn" style="font-size:0.8em;opacity:0.7;margin-top:calc(3px * var(--gs))" data-fire-staff="${emp.role}">Fire (−1, +${Math.floor(emp.cost * 0.5)}✦)</button>`
+        : '';
+      html += `
+        <div class="si ${can && !maxed ? 'afford' : ''}">
+          <div class="si-icon">${ROLE_ICONS[emp.role]}</div>
+          <div class="si-info">
+            <div class="si-name">${emp.name}</div>
+            <div class="si-desc">${emp.desc} · ${current}/${emp.max} hired</div>
+          </div>
+          <div class="si-right" style="flex-direction:column;align-items:flex-end;gap:calc(2px * var(--gs))">
+            <div style="display:flex;align-items:center;gap:calc(6px * var(--gs))">
+              <span class="si-cost${can || maxed ? '' : ' dim'}">${emp.cost} ✦</span>
+              <button class="si-btn${maxed ? ' owned-lbl' : ''}"${(maxed || (!can && !maxed)) ? ' disabled' : ''} data-hire-staff="${emp.role}">${maxed ? 'Full' : 'Hire'}</button>
+            </div>
+            ${fireBtn}
+          </div>
+        </div>`;
     });
 
     const locked = EMPLOYEE_TYPES.filter(e => e.minTier && e.minTier > tier);
@@ -1079,11 +1132,15 @@ class UIOverlay {
 
   private renderExpand(s: UIState): void {
     const owned = new Set<string>(s.ownedExpansionIds ?? []);
+    const pending = new Set<string>(s.pendingExpansionIds ?? []);
     const money = s.money ?? 0;
     const rep = s.reputation ?? 0;
     let html = '';
 
     html += `<p class="sp-meta">Purchase expansions to grow your café. Takes effect the next day.</p>`;
+    if (pending.size > 0) {
+      html += `<div style="background:rgba(100,200,100,0.08);border:1px solid rgba(100,200,100,0.25);border-radius:calc(6px * var(--gs));padding:calc(8px * var(--gs)) calc(12px * var(--gs));margin-bottom:calc(10px * var(--gs));font-size:calc(10px * var(--gs));color:#88dd88">🔨 Expansion purchased — new floor space opens at the start of tomorrow.</div>`;
+    }
 
     if (EXPANSION_ZONES.length === 0) {
       html += `<p class="sp-empty">No expansions available yet.</p>`;
@@ -1190,6 +1247,15 @@ class UIOverlay {
         });
       });
     });
+
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-fire-staff]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'fire_staff', role: btn.dataset.fireStaff as EmployeeRole });
+        });
+      });
+    });
+
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-place-decor]').forEach(btn => {
       btn.addEventListener('click', () => {
         const defId = btn.dataset.placeDecor;
@@ -1220,6 +1286,28 @@ class UIOverlay {
         });
       });
     });
+
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-slot]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'buy_table', slotId: parseInt(btn.dataset.buySlot!, 10) });
+        });
+      });
+    });
+  }
+
+  private showContextualHint(id: string, message: string): void {
+    if (this.seenHints.has(id)) return;
+    this.seenHints.add(id);
+    const el = document.getElementById('contextual-hint');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add('visible');
+    if (this.hintTimeout !== null) clearTimeout(this.hintTimeout);
+    this.hintTimeout = setTimeout(() => {
+      el.classList.remove('visible');
+      this.hintTimeout = null;
+    }, 5000);
   }
 
   private getCount(s: UIState, role: EmployeeRole): number {
@@ -1256,7 +1344,12 @@ class UIOverlay {
     this.catEl.style.color = state.catHappiness > 60 ? '#FF9AB0' : state.catHappiness > 30 ? '#FFAA44' : '#FF4444';
 
     if (state.tierName)                    this.tierEl.textContent     = state.tierName;
-    if (state.ambiance !== undefined)      this.ambianceEl.textContent = `✦ ${state.ambiance} ambiance`;
+    if (state.ambiance !== undefined) {
+      const nextTier = CAFE_TIERS.find(t => t.ambianceRequired > (state.ambiance ?? 0));
+      this.ambianceEl.textContent = nextTier
+        ? `✦ ${state.ambiance}/${nextTier.ambianceRequired}`
+        : `✦ ${state.ambiance} ambiance`;
+    }
 
     this.dayLabelEl.textContent = `Day ${state.day}`;
 
@@ -1275,10 +1368,29 @@ class UIOverlay {
     const timeEl = document.getElementById('time-remaining');
     if (timeEl && state.dayProgress !== undefined) {
       const remainMs = Math.max(0, (1 - state.dayProgress) * 300000);
-      const m = Math.floor(remainMs / 60000);
-      const s = Math.floor((remainMs % 60000) / 1000);
-      timeEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
-      timeEl.style.color = remainMs < 60000 ? '#FF4444' : remainMs < 90000 ? '#FFAA33' : '';
+      if (remainMs < 60000) {
+        const m = Math.floor(remainMs / 60000);
+        const s = Math.floor((remainMs % 60000) / 1000);
+        timeEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+        timeEl.style.color = remainMs < 30000 ? '#FF4444' : '#FFAA33';
+        timeEl.style.display = '';
+      } else {
+        timeEl.style.display = 'none';
+      }
+    }
+
+    // Kitchen capacity warning
+    const capWarnEl = document.getElementById('kitchen-cap-warning');
+    if (capWarnEl) {
+      capWarnEl.style.display = state.kitchenAtCapacity ? '' : 'none';
+    }
+
+    // Contextual one-time hints
+    if (state.kitchenAtCapacity) {
+      this.showContextualHint('kitchen_full', '⚠ Kitchen full — all stations busy, orders are stacking. Buy more machines or a cook!');
+    }
+    if ((state.tierLevel ?? 1) >= 2 && !this.seenHints.has('tier2_reached')) {
+      this.showContextualHint('tier2_reached', '★ Tier 2 unlocked! Reservations are now available — check the end-of-day screen to book guests.');
     }
 
     this.renderOrders(state.orders ?? []);
