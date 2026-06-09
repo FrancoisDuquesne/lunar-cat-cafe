@@ -3,10 +3,10 @@ import { CustomerType, MenuItemDef } from '../types';
 import { TILE, MENU_ITEMS, COLORS } from '../constants';
 import { BaseCharacter } from './BaseCharacter';
 
-// Waypoints that keep customers aligned with the door opening (cols 14-17)
-const DOOR_INNER_Y  = 14 * TILE + TILE / 2; // row 14, just inside the café
-const DOOR_CENTER_X = 15 * TILE + TILE / 2; // col 15 center — safely inside the door
-const DOOR_EXIT_Y   = 15 * TILE + TILE / 2; // row 15, at the door when leaving
+// Waypoints aligned with the door opening (cols 14–15, row 13)
+const DOOR_INNER_Y  = 12 * TILE + TILE / 2; // row 12 — just inside the last dining row
+const DOOR_CENTER_X = 14 * TILE + TILE / 2; // col 14 center — inside the door
+const DOOR_EXIT_Y   = 13 * TILE + TILE / 2; // row 13 — at the door when leaving
 
 type CustomerAIState = 'walking_in' | 'seated' | 'waiting_order' | 'order_taken' | 'waiting_food' | 'eating' | 'walking_out' | 'gone';
 
@@ -22,6 +22,7 @@ export class Customer extends BaseCharacter {
 
   patience = 100;         // 0–100; decreases while waiting
   happiness = 70;         // 0–100
+  tipMultiplier = 1;      // VIP customers use 3×
   private patienceDrainRate = 0; // per ms, set after order is taken
 
   // Injected by GameScene — returns the effective menu for the current café tier
@@ -89,7 +90,7 @@ export class Customer extends BaseCharacter {
         this.setVel(0, 0);
         this.stateTimer -= delta;
         if (this.stateTimer <= 0) {
-          const menu = this.getAvailableMenuItems?.() ?? (MENU_ITEMS as unknown as MenuItemDef[]);
+          const menu = this.getAvailableMenuItems?.() ?? (MENU_ITEMS as readonly MenuItemDef[]);
           if (menu.length === 0) { this.beginLeave(); break; }
           this.order = menu[Math.floor(Math.random() * menu.length)];
           this.aiState = 'waiting_order';
@@ -98,8 +99,8 @@ export class Customer extends BaseCharacter {
         break;
 
       case 'waiting_order':
-        // Slow drain — customer leaves if ignored for ~90 seconds
-        this.patience = Math.max(0, this.patience - delta * 0.0011);
+        // Slow drain — customer leaves if ignored for ~90 seconds (VIP drains 2× faster)
+        this.patience = Math.max(0, this.patience - delta * 0.0011 * (this.tipMultiplier > 1 ? 2 : 1));
         this.updatePatienceBar();
         if (this.patience <= 0) {
           this.happiness = 20;
@@ -147,7 +148,7 @@ export class Customer extends BaseCharacter {
         break;
     }
 
-    this.setDepth(8 + this.y / 1000);
+    this.updateYDepth(8);
 
     // Update speech bubble position
     if (this.speechBubble) {
@@ -307,7 +308,7 @@ export class Customer extends BaseCharacter {
     const base = this.order?.price ?? 0;
     const patienceBonus = Math.floor((this.patience / 100) * base * 0.5);
     const happinessBonus = Math.floor((this.happiness / 100) * base * 0.3);
-    return Math.floor(base + patienceBonus + happinessBonus);
+    return Math.floor((base + patienceBonus + happinessBonus) * this.tipMultiplier);
   }
 
   private showFloatingText(text: string, color: number): void {

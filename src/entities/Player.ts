@@ -133,7 +133,7 @@ export class Player extends BaseCharacter {
       this.setVel(0, 0);
     }
 
-    this.setDepth(10 + this.y / 1000);
+    this.updateYDepth(10);
     if (this.carriedFoodSprite) {
       this.carriedFoodSprite.setPosition(this.x + 10, this.y - 32);
       this.carriedFoodSprite.setDepth(this.depth + 0.1);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BaseCharacter } from './BaseCharacter';
+import { StaffNpc } from './StaffNpc';
 
 type EmpAIState = 'idle' | 'going_to_customer' | 'going_to_station' | 'delivering_food';
 
@@ -12,7 +12,7 @@ export interface ReadyStation {
   customerY: number;
 }
 
-export class Employee extends BaseCharacter {
+export class Employee extends StaffNpc {
   readonly employeeId: number;
   readonly employeeName: string;
 
@@ -21,7 +21,6 @@ export class Employee extends BaseCharacter {
   private targetCustomerId: number | null = null;
   private targetX = 0;
   private targetY = 0;
-  private nameBadge: Phaser.GameObjects.Text;
   private wanderTimer = 0;
   private wanderX = 0;
   private wanderY = 0;
@@ -35,22 +34,10 @@ export class Employee extends BaseCharacter {
   onDeliverFood?: (customerId: number, itemId: string) => void;
 
   constructor(scene: Phaser.Scene, x: number, y: number, id: number, name: string) {
-    super(scene, x, y, 'player_employee');
+    super(scene, x, y, name, '#AAFFAA', '#003300');
 
     this.employeeId = id;
     this.employeeName = name;
-
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setSize(12, 12);
-    body.setOffset(2, 12);
-    this.setDepth(10);
-    this.setOrigin(0.5, 0.9);
-
-    this.nameBadge = scene.add.text(x, y - 24, name, {
-      fontSize: '8px', color: '#AAFFAA', fontFamily: 'monospace',
-      stroke: '#003300', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(11);
-
     this.wanderX = x;
     this.wanderY = y;
   }
@@ -67,8 +54,7 @@ export class Employee extends BaseCharacter {
     this.idleTimer -= delta;
     this.wanderTimer -= delta;
 
-    this.nameBadge.setPosition(this.x, this.y - 24);
-    this.setDepth(10 + this.y / 1000);
+    this.updateBadgeAndDepth();
 
     if (this.foodCarrySprite) {
       this.foodCarrySprite.setPosition(this.x, this.y - 28);
@@ -79,8 +65,8 @@ export class Employee extends BaseCharacter {
       case 'idle': {
         if (this.wanderTimer <= 0) {
           this.wanderTimer = Phaser.Math.Between(2000, 5000);
-          this.wanderX = Phaser.Math.Between(2 * 32, 27 * 32);
-          this.wanderY = Phaser.Math.Between(10 * 32, 14 * 32);
+          this.wanderX = Phaser.Math.Between(11 * 32, 18 * 32);
+          this.wanderY = Phaser.Math.Between(8 * 32, 12 * 32);
         }
         const wx = this.wanderX - this.x;
         const wy = this.wanderY - this.y;
@@ -212,7 +198,7 @@ export class Employee extends BaseCharacter {
   }
 
   cleanup(): void {
-    this.nameBadge.destroy();
+    super.cleanup();
     this.foodCarrySprite?.destroy();
   }
 }

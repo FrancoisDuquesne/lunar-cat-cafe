@@ -101,7 +101,7 @@ export class Cat extends BaseCharacter {
         break;
     }
 
-    this.setDepth(5 + this.y / 1000);
+    this.updateYDepth(5);
 
     // Update z-text
     if (this.sleepZText) {

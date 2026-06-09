@@ -79,4 +79,8 @@ export abstract class BaseCharacter extends Phaser.Physics.Arcade.Sprite {
   protected setVel(vx: number, vy: number): void {
     (this.body as Phaser.Physics.Arcade.Body).setVelocity(vx, vy);
   }
+
+  protected updateYDepth(base: number): void {
+    this.setDepth(base + this.y / 1000);
+  }
 }
