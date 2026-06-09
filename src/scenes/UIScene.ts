@@ -20,9 +20,10 @@ export class UIScene extends Phaser.Scene {
       uiOverlay.refreshDayReport(data.money, data.bookings);
     }, this);
 
-    this.game.events.on('game_event', (evt: { type: string }) => {
+    this.game.events.on('game_event', (evt: { type: string; active?: boolean }) => {
       if (evt.type === 'open_store_panel') uiOverlay.openStore(true);
       else if (evt.type === 'close_store_panel') uiOverlay.closeStore(true);
+      else if (evt.type === 'set_build_mode_active') uiOverlay.setBuildModeActive(evt.active ?? false);
     }, this);
 
     this.events.once('shutdown', () => {

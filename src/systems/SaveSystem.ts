@@ -1,17 +1,18 @@
 import { GameSaveState, ShopState } from '../types';
 import { CAT_NAMES } from '../constants';
 
-const SAVE_KEY = 'lunar_cat_cafe_v2';
+const SAVE_KEY = 'lunar_cat_cafe_v3';
 
 function freshShop(): ShopState {
   return {
     catToys: 0, catTrees: 0, employees: 0,
     placedDecorations: [],
-    ownedTableSlotIds: [0, 1, 2],
+    ownedTableSlotIds: [0, 1],
     cooks: 0, guards: 0, caterers: 0,
     ownedRecipeIds: ['moon_mocha', 'zerog_latte'],
     dailyMenuIds: ['moon_mocha', 'zerog_latte'],
     ownedMachines: ['espresso_machine'],
+    ownedExpansionIds: [],
   };
 }
 
@@ -47,6 +48,11 @@ export function loadGame(): GameSaveState | null {
     if (!state.shop) state.shop = freshShop();
     if (state.shop.extraMachines === undefined) state.shop.extraMachines = 0;
     if (!state.shop.placedDecorations) state.shop.placedDecorations = [];
+    // Assign instanceIds to legacy saves that lack them
+    state.shop.placedDecorations = state.shop.placedDecorations.map((pd: any, i: number) => ({
+      instanceId: pd.instanceId ?? `deco_legacy_${i}`,
+      ...pd,
+    }));
     // Patch new fields for old saves
     if (!state.shop.ownedTableSlotIds) {
       // Old v2 save had all 12 tables by default — preserve them
@@ -55,6 +61,7 @@ export function loadGame(): GameSaveState | null {
     if (state.shop.cooks === undefined) state.shop.cooks = 0;
     if (state.shop.guards === undefined) state.shop.guards = 0;
     if (state.shop.caterers === undefined) state.shop.caterers = 0;
+    if (!state.shop.ownedExpansionIds) state.shop.ownedExpansionIds = [];
     if (!state.shop.ownedRecipeIds) state.shop.ownedRecipeIds = ['moon_mocha', 'zerog_latte'];
     if (!state.shop.dailyMenuIds) state.shop.dailyMenuIds = [...state.shop.ownedRecipeIds];
     if (state.shop.bookings === undefined) state.shop.bookings = 0;

@@ -5,7 +5,7 @@ export interface MenuItemDef {
   name: string;
   price: number;
   prepTime: number;
-  machines: string[];   // required machine IDs; primary (cooking) machine is machines[0]
+  readonly machines: readonly string[];   // required machine IDs; primary (cooking) machine is machines[0]
   recipeCost?: number;
   description?: string;
 }
@@ -50,6 +50,7 @@ export interface ShopState {
   dailyMenuIds?: string[];
   bookings?: number;
   ownedMachines?: string[];
+  ownedExpansionIds?: string[];
   // Legacy fields — kept for save migration only
   extraMachines?: number;
   ownedStations?: string[];
@@ -93,4 +94,7 @@ export type GameCommand =
   | { type: 'toggle_daily_recipe'; itemId: string }
   | { type: 'next_day' }
   | { type: 'set_bookings'; delta: number }
-  | { type: 'tier_changed'; tierName: string; tierLevel: number };
+  | { type: 'tier_changed'; tierName: string; tierLevel: number }
+  | { type: 'toggle_build_mode' }
+  | { type: 'set_build_mode_active'; active: boolean }
+  | { type: 'buy_expansion'; zoneId: string };

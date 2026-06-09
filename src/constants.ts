@@ -36,12 +36,14 @@ export interface MachineDef {
   starter?: boolean;
 }
 
+// Machines sit in the back-wall kitchen: row 5 (front machine row) and row 6 (back machine row).
+// Interior cols 10-19, walls at 9 and 20.
 export const MACHINE_DEFS: MachineDef[] = [
-  { id: 'espresso_machine', name: 'Espresso Machine', cost: 0,   col: 11, row: 7, texKey: 'obj_coffee_machine', label: 'Espresso', desc: 'Pulls rich shots for all coffee drinks.',           starter: true },
-  { id: 'griddle',          name: 'Pancake Griddle',  cost: 80,  col: 13, row: 7, texKey: 'obj_griddle',        label: 'Griddle',  desc: 'Flat-iron cooking — pancakes and hot flatbreads.' },
-  { id: 'stove',            name: 'Gas Stove',        cost: 100, col: 15, row: 7, texKey: 'obj_stove',          label: 'Stove',    desc: 'Hot cooking — fondue, risotto, and rich sauces.' },
-  { id: 'mixer',            name: 'Stand Mixer',      cost: 120, col: 17, row: 7, texKey: 'obj_mixer',          label: 'Mixer',    desc: 'Mixes dough and batter. Pair with Oven to bake.' },
-  { id: 'oven',             name: 'Convection Oven',  cost: 160, col: 13, row: 8, texKey: 'obj_oven',           label: 'Oven',     desc: 'Bakes goods prepared by the Stand Mixer.' },
+  { id: 'espresso_machine', name: 'Espresso Machine', cost: 0,   col: 11, row: 5, texKey: 'obj_coffee_machine', label: 'Espresso', desc: 'Pulls rich shots for all coffee drinks.',           starter: true },
+  { id: 'griddle',          name: 'Pancake Griddle',  cost: 80,  col: 13, row: 5, texKey: 'obj_griddle',        label: 'Griddle',  desc: 'Flat-iron cooking — pancakes and hot flatbreads.' },
+  { id: 'stove',            name: 'Gas Stove',        cost: 100, col: 15, row: 5, texKey: 'obj_stove',          label: 'Stove',    desc: 'Hot cooking — fondue, risotto, and rich sauces.' },
+  { id: 'mixer',            name: 'Stand Mixer',      cost: 120, col: 17, row: 5, texKey: 'obj_mixer',          label: 'Mixer',    desc: 'Mixes dough and batter. Pair with Oven to bake.' },
+  { id: 'oven',             name: 'Convection Oven',  cost: 160, col: 13, row: 6, texKey: 'obj_oven',           label: 'Oven',     desc: 'Bakes goods prepared by the Stand Mixer.' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +66,7 @@ export interface DecorationDef {
 }
 
 export interface PlacedDecoration {
+  instanceId: string;
   defId: string;
   tileX: number;
   tileY: number;
@@ -134,21 +137,72 @@ export interface TableSlotDef {
   seats: number;
 }
 
-// All possible table/booth positions. IDs 0-1 are starter tables (cost=0 but still listed for consistency).
-// Players begin with ownedTableSlotIds: [0, 1, 2] and purchase the rest.
+// Pre-placed starter tables inside the base shack (cols 10-19, dining rows 7-12).
+// Convention: wx = (col+1)*TILE, so the table sprite center is at col+1.
+// Players begin with ownedTableSlotIds: [0, 1].
 export const TABLE_SLOT_DEFS: TableSlotDef[] = [
-  { id: 0,  col: 2,  row: 7,  type: 'single', cost: 0,   name: 'Corner Table',    seats: 1 },
-  { id: 1,  col: 21, row: 7,  type: 'single', cost: 0,   name: 'Corner Table',    seats: 1 },
-  { id: 2,  col: 6,  row: 7,  type: 'single', cost: 120, name: 'Window Table',    seats: 1 },
-  { id: 3,  col: 2,  row: 11, type: 'single', cost: 120, name: 'Wall Table',      seats: 1 },
-  { id: 4,  col: 6,  row: 11, type: 'single', cost: 120, name: 'Garden Table',    seats: 1 },
-  { id: 5,  col: 25, row: 7,  type: 'single', cost: 120, name: 'Window Table',    seats: 1 },
-  { id: 6,  col: 21, row: 11, type: 'single', cost: 120, name: 'Wall Table',      seats: 1 },
-  { id: 7,  col: 25, row: 11, type: 'single', cost: 120, name: 'Garden Table',    seats: 1 },
-  { id: 8,  col: 3,  row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
-  { id: 9,  col: 10, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
-  { id: 10, col: 17, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
-  { id: 11, col: 22, row: 12, type: 'group',  cost: 200, name: 'Booth (2 seats)', seats: 2 },
+  { id: 0, col: 11, row: 8,  type: 'single', cost: 0,   name: 'Café Table',  seats: 1 },
+  { id: 1, col: 16, row: 8,  type: 'single', cost: 0,   name: 'Café Table',  seats: 1 },
+  { id: 2, col: 11, row: 11, type: 'single', cost: 200, name: 'Back Table',  seats: 1 },
+  { id: 3, col: 16, row: 11, type: 'single', cost: 200, name: 'Back Table',  seats: 1 },
+];
+
+// ─── EXPANSION ZONES ──────────────────────────────────────────────────────────
+
+export interface MapPatch { row: number; col: number; tile: number; }
+
+export interface ExpansionZone {
+  id: string;
+  name: string;
+  desc: string;
+  cost: number;
+  minReputation: number;
+  patches: MapPatch[];
+}
+
+// Left wing adds cols 5-9 (rows 7-13) alongside the base shack.
+// Right wing adds cols 20-24 (rows 7-13) on the other side.
+export const EXPANSION_ZONES: ExpansionZone[] = [
+  {
+    id: 'expansion_left',
+    name: 'Left Annex',
+    desc: 'Extends the café to the left — adds a new dining wing with room for more tables.',
+    cost: 800,
+    minReputation: 25,
+    patches: [
+      // Top wall closing off the annex (row 6 = second kitchen row; annex roof above dining rows)
+      { row: 6, col: 5, tile: 2 }, { row: 6, col: 6, tile: 2 }, { row: 6, col: 7, tile: 2 }, { row: 6, col: 8, tile: 2 },
+      // Annex body rows 7-12: outer left wall + interior floor + open shared wall at col 9
+      { row: 7,  col: 5, tile: 2 }, { row: 7,  col: 6, tile: 1 }, { row: 7,  col: 7, tile: 1 }, { row: 7,  col: 8, tile: 1 }, { row: 7,  col: 9, tile: 1 },
+      { row: 8,  col: 5, tile: 2 }, { row: 8,  col: 6, tile: 1 }, { row: 8,  col: 7, tile: 1 }, { row: 8,  col: 8, tile: 1 }, { row: 8,  col: 9, tile: 1 },
+      { row: 9,  col: 5, tile: 2 }, { row: 9,  col: 6, tile: 1 }, { row: 9,  col: 7, tile: 1 }, { row: 9,  col: 8, tile: 1 }, { row: 9,  col: 9, tile: 1 },
+      { row: 10, col: 5, tile: 2 }, { row: 10, col: 6, tile: 1 }, { row: 10, col: 7, tile: 1 }, { row: 10, col: 8, tile: 1 }, { row: 10, col: 9, tile: 1 },
+      { row: 11, col: 5, tile: 2 }, { row: 11, col: 6, tile: 1 }, { row: 11, col: 7, tile: 1 }, { row: 11, col: 8, tile: 1 }, { row: 11, col: 9, tile: 1 },
+      { row: 12, col: 5, tile: 2 }, { row: 12, col: 6, tile: 1 }, { row: 12, col: 7, tile: 1 }, { row: 12, col: 8, tile: 1 }, { row: 12, col: 9, tile: 1 },
+      // Front wall extension
+      { row: 13, col: 5, tile: 2 }, { row: 13, col: 6, tile: 2 }, { row: 13, col: 7, tile: 2 }, { row: 13, col: 8, tile: 2 },
+    ],
+  },
+  {
+    id: 'expansion_right',
+    name: 'Right Annex',
+    desc: 'Extends the café to the right — adds a new dining wing with room for more tables.',
+    cost: 800,
+    minReputation: 25,
+    patches: [
+      // Top wall
+      { row: 6, col: 21, tile: 2 }, { row: 6, col: 22, tile: 2 }, { row: 6, col: 23, tile: 2 }, { row: 6, col: 24, tile: 2 },
+      // Annex body rows 7-12: open shared wall at col 20 + interior floor + outer right wall at col 24
+      { row: 7,  col: 20, tile: 1 }, { row: 7,  col: 21, tile: 1 }, { row: 7,  col: 22, tile: 1 }, { row: 7,  col: 23, tile: 1 }, { row: 7,  col: 24, tile: 2 },
+      { row: 8,  col: 20, tile: 1 }, { row: 8,  col: 21, tile: 1 }, { row: 8,  col: 22, tile: 1 }, { row: 8,  col: 23, tile: 1 }, { row: 8,  col: 24, tile: 2 },
+      { row: 9,  col: 20, tile: 1 }, { row: 9,  col: 21, tile: 1 }, { row: 9,  col: 22, tile: 1 }, { row: 9,  col: 23, tile: 1 }, { row: 9,  col: 24, tile: 2 },
+      { row: 10, col: 20, tile: 1 }, { row: 10, col: 21, tile: 1 }, { row: 10, col: 22, tile: 1 }, { row: 10, col: 23, tile: 1 }, { row: 10, col: 24, tile: 2 },
+      { row: 11, col: 20, tile: 1 }, { row: 11, col: 21, tile: 1 }, { row: 11, col: 22, tile: 1 }, { row: 11, col: 23, tile: 1 }, { row: 11, col: 24, tile: 2 },
+      { row: 12, col: 20, tile: 1 }, { row: 12, col: 21, tile: 1 }, { row: 12, col: 22, tile: 1 }, { row: 12, col: 23, tile: 1 }, { row: 12, col: 24, tile: 2 },
+      // Front wall extension
+      { row: 13, col: 21, tile: 2 }, { row: 13, col: 22, tile: 2 }, { row: 13, col: 23, tile: 2 }, { row: 13, col: 24, tile: 2 },
+    ],
+  },
 ];
 
 // ─── EMPLOYEE TYPES ───────────────────────────────────────────────────────────
@@ -174,84 +228,92 @@ export const EMPLOYEE_TYPES: EmployeeTypeDef[] = [
 ];
 
 export const COLORS = {
-  // Interior floor — warm amber oak planks
-  FLOOR_A:         0xC87828,
-  FLOOR_B:         0xA86020,
-  FLOOR_SEAM:      0x7A4210,
+  // ── Interior floor — warm honey oak planks ──────────────────────────
+  FLOOR_A:         0xB87020,
+  FLOOR_B:         0xA06018,
+  FLOOR_SEAM:      0x6A3C0C,
 
-  // Warm cream walls with teal accent
-  WALL_CREAM:      0xE8D8A8,
-  WALL_DARK:       0xA89868,
-  WINDOW_FRAME:    0xF0C018,
+  // ── Habitat walls — riveted industrial steel ────────────────────────
+  WALL_STEEL:      0x4A5060,
+  WALL_STEEL_HI:   0x6A7888,
+  WALL_STEEL_LO:   0x2A2F3C,
+  WALL_RIVET:      0x5A6878,
+  // Legacy aliases (kept for buildDecorations references)
+  WALL_CREAM:      0x4A5060,
+  WALL_DARK:       0x2A2F3C,
+  WINDOW_FRAME:    0x5A6070,
 
-  // Counters — warm mahogany
-  COUNTER_TOP:     0x7C4A18,
-  COUNTER_SIDE:    0x3C1C06,
+  // ── Counter — brushed stainless steel ───────────────────────────────
+  COUNTER_TOP:     0x5A6470,
+  COUNTER_SIDE:    0x383E48,
 
-  // Furniture — warm mahogany + gold
+  // ── Furniture — warm mahogany + gold accent ──────────────────────────
   TABLE_TOP:       0x6A3810,
   TABLE_LEG:       0xD4A820,
   CHAIR_TOP:       0xD84040,
   CHAIR_LEG:       0xD4A820,
 
-  // Kitchen tiles — cream checkerboard
-  KITCHEN_A:       0xF0E8D0,
-  KITCHEN_B:       0xD4C494,
-  KITCHEN_GROUT:   0xA08858,
+  // ── Kitchen tiles — industrial cream/gray checkerboard ──────────────
+  KITCHEN_A:       0xE8E0CC,
+  KITCHEN_B:       0xC8C0A4,
+  KITCHEN_GROUT:   0x888070,
 
-  // Space exterior — deep teal-navy
-  SPACE_DEEP:      0x0B1A40,
-  SPACE_MID:       0x0D2050,
-  SPACE_BLUE:      0x102860,
-  MOON_GRAY:       0xC8C4B0,
-  MOON_LIGHT:      0xE0DDD0,
-  MOON_DARK:       0x9A9480,
+  // ── Space exterior — deep void navy ─────────────────────────────────
+  SPACE_DEEP:      0x060B18,
+  SPACE_MID:       0x080E20,
+  SPACE_BLUE:      0x0A1228,
 
-  // Earth & celestial
+  // ── Lunar surface palette ────────────────────────────────────────────
+  MOON_GRAY:       0xC0BCA8,  // warm silver-gray regolith
+  MOON_LIGHT:      0xD8D4C0,  // sunlit crater rim highlight
+  MOON_DARK:       0x888070,  // crater shadow / depression
+  MOON_DUST:       0xB0AC98,  // flat dust expanse
+
+  // ── Earth & celestial ────────────────────────────────────────────────
   EARTH_OCEAN:     0x1A6FAA,
   EARTH_LAND:      0x2E7D52,
   EARTH_CLOUD:     0xDDEEFF,
   DOME_GLASS:      0x88BBCC,
 
-  // Cat colors — vibrant, anime-saturated
-  CAT_ORANGE:      0xFF7A28,
-  CAT_ORANGE_D:    0xCC5810,
-  CAT_GRAY:        0x9A9A9A,
-  CAT_GRAY_D:      0x6A6A6A,
+  // ── Cat colors ───────────────────────────────────────────────────────
+  CAT_ORANGE:      0xE87020,
+  CAT_ORANGE_D:    0xB85010,
+  CAT_GRAY:        0x909090,
+  CAT_GRAY_D:      0x606060,
   CAT_BLACK:       0x222233,
   CAT_BLACK_D:     0x111122,
-  CAT_CREAM:       0xF0DEB0,
-  CAT_CREAM_D:     0xD0B880,
-  CAT_NOSE:        0xFF8899,
-  CAT_EYE:         0x44CC44,
+  CAT_CREAM:       0xEED0A0,
+  CAT_CREAM_D:     0xC8A870,
+  CAT_NOSE:        0xFF7788,
+  CAT_EYE:         0x30B840,
 
-  // Customer palette
-  SKIN_A:          0xF5C88A,
-  SKIN_B:          0xD49050,
-  ASTRONAUT_SUIT:  0xDDDDEE,
-  ASTRONAUT_VISOR: 0x28C0C8,
-  SCIENTIST_COAT:  0xEEEEEE,
-  SCIENTIST_HAT:   0x334466,
-  TOURIST_SHIRT:   0xFF6060,
-  WORKER_SUIT:     0xFF8822,
+  // ── Customer palette ─────────────────────────────────────────────────
+  SKIN_A:          0xE8B878,
+  SKIN_B:          0xC88040,
+  ASTRONAUT_SUIT:  0xCCCCDC,
+  ASTRONAUT_VISOR: 0x20A8B8,
+  SCIENTIST_COAT:  0xE8E8E8,
+  SCIENTIST_HAT:   0x2A3850,
+  TOURIST_SHIRT:   0xE05050,
+  WORKER_SUIT:     0xE07818,
 
-  // Player
-  PLAYER_SUIT:     0xEEEEFF,
-  PLAYER_VISOR:    0x30C8D0,
+  // ── Player ───────────────────────────────────────────────────────────
+  PLAYER_SUIT:     0xD8D8E8,
+  PLAYER_VISOR:    0x28B0C0,
 
-  // Employee
-  EMPLOYEE_SUIT:   0x60CC80,
-  EMPLOYEE_VISOR:  0xFFDD44,
+  // ── Employee ─────────────────────────────────────────────────────────
+  EMPLOYEE_SUIT:   0x50B868,
+  EMPLOYEE_VISOR:  0xEECC30,
 
-  // UI — warm dark panels with gold
+  // ── UI — warm dark panels with gold accent ───────────────────────────
   UI_GOLD:         0xF0C018,
   UI_HEART:        0xFF5588,
   UI_STAR:         0xFFE044,
   UI_PANEL:        0x1A1428,
   UI_PANEL_LIGHT:  0x2A2040,
   UI_TEXT:         0xFFF0D8,
-  UI_PATIENCE_OK:  0x55CC55,
-  UI_PATIENCE_LOW: 0xFF5522,
+  UI_PATIENCE_OK:  0x44BB44,
+  UI_PATIENCE_LOW: 0xFF4411,
   PARTICLE_STEAM:  0xCCEEEE,
 } as const;
 
@@ -272,3 +334,20 @@ export const PET_COOLDOWN_MS = 8000;       // ms between cat pets
 export const BOOKING_COST = 25;            // ✦ per booking slot
 export const MAX_BOOKINGS = 4;             // max pre-booked guests per day
 export const DECORATION_REFUND_RATIO = 0.5; // fraction refunded on removal
+
+
+// Daily rent — increases as the café grows
+export const DAILY_RENT_TABLE: ReadonlyArray<{ fromDay: number; rent: number }> = [
+  { fromDay: 1,  rent: 50  },
+  { fromDay: 3,  rent: 80  },
+  { fromDay: 6,  rent: 120 },
+  { fromDay: 10, rent: 160 },
+] as const;
+
+export function getDailyRent(day: number): number {
+  let rent = DAILY_RENT_TABLE[0].rent;
+  for (const entry of DAILY_RENT_TABLE) {
+    if (day >= entry.fromDay) rent = entry.rent;
+  }
+  return rent;
+}

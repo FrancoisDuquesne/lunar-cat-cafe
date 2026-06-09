@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import {
   EMPLOYEE_TYPES, DECORATION_ITEMS, CAFE_TIERS, MENU_ITEMS,
-  DecorationCategory, EmployeeRole, MACHINE_DEFS,
+  DecorationCategory, EmployeeRole, MACHINE_DEFS, EXPANSION_ZONES,
+  BOOKING_COST, MAX_BOOKINGS,
 } from '../constants';
-import type { OrderInfo } from '../types';
+import type { OrderInfo, MenuItemDef } from '../types';
+import { isSoundEnabled, setSoundEnabled } from '../audio';
 
 export interface DayReportData {
   day: number;
@@ -15,6 +17,7 @@ export interface DayReportData {
   popularityHistory: Array<{ day: number; served: number; revenue: number }>;
   tierLevel: number;
   bookings: number;
+  rentDue: number;
 }
 import { touchControls } from './TouchControls';
 
@@ -38,9 +41,10 @@ export interface UIState {
   ownedMachines?: string[];
   ownedRecipeIds?: string[];
   dailyMenuIds?: string[];
+  ownedExpansionIds?: string[];
 }
 
-type ManagerSection = 'overview' | 'furnish' | 'kitchen' | 'staff' | 'menu';
+type ManagerSection = 'overview' | 'furnish' | 'kitchen' | 'staff' | 'menu' | 'expand';
 
 // ── SVG ICONS ─────────────────────────────────────────────────────────────────
 
@@ -342,6 +346,7 @@ class UIOverlay {
   private lastState: UIState | null = null;
   private prevMoney = 0;
   private prevRep = 0;
+  private lastManagerFingerprint = '';
 
   private hudEl!: HTMLElement;
   private moneyEl!: HTMLElement;
@@ -361,6 +366,8 @@ class UIOverlay {
   private menuButtonsEl!: HTMLElement;
   private legendEl!: HTMLElement;
   private dayReportEl!: HTMLElement;
+  private howToPlayEl!: HTMLElement;
+  private htpActionBtn!: HTMLButtonElement;
   private drBookings = 0;
   private drMoney = 0;
   private drTierLevel = 0;
@@ -390,6 +397,12 @@ class UIOverlay {
     this.menuButtonsEl  = document.getElementById('menu-buttons')!;
     this.legendEl       = document.getElementById('legend')!;
     this.dayReportEl    = document.getElementById('day-report')!;
+    this.howToPlayEl    = document.getElementById('how-to-play-modal')!;
+    this.htpActionBtn   = document.getElementById('htp-action-btn')! as HTMLButtonElement;
+
+    document.getElementById('btn-build')!.addEventListener('click', () => {
+      game.events.emit('game_event', { type: 'toggle_build_mode' });
+    });
 
     document.getElementById('btn-store')!.addEventListener('click', () => {
       if (this.managerOpen) this.closeManager();
@@ -407,6 +420,35 @@ class UIOverlay {
       navItem.addEventListener('click', () => {
         this.switchSection((navItem as HTMLElement).dataset.section as ManagerSection);
       });
+    });
+
+    // Sound toggle (HUD)
+    const hudSoundBtn = document.getElementById('btn-sound')!;
+    const syncSoundBtns = () => {
+      const on = isSoundEnabled();
+      const onSvg = `<svg viewBox="0 0 20 20" fill="none"><path d="M3 7v6h4l5 5V2L7 7H3z" fill="#5A2E06"/><path d="M14.5 7.5a5 5 0 0 1 0 5" stroke="#5A2E06" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M17 5a8 8 0 0 1 0 10" stroke="#5A2E06" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.5"/></svg>`;
+      const offSvg = `<svg viewBox="0 0 20 20" fill="none"><path d="M3 7v6h4l5 5V2L7 7H3z" fill="#5A2E06" opacity="0.45"/><line x1="13" y1="7" x2="18" y2="13" stroke="#5A2E06" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="7" x2="13" y2="13" stroke="#5A2E06" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+      const menuIconOn = `<svg viewBox="0 0 20 20" fill="none"><path d="M3 7v6h4l5 5V2L7 7H3z" fill="#8aaabb"/><path d="M14.5 7.5a5 5 0 0 1 0 5" stroke="#8aaabb" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M17 5a8 8 0 0 1 0 10" stroke="#8aaabb" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.5"/></svg>`;
+      const menuIconOff = `<svg viewBox="0 0 20 20" fill="none"><path d="M3 7v6h4l5 5V2L7 7H3z" fill="#8aaabb" opacity="0.4"/><line x1="13" y1="7" x2="18" y2="13" stroke="#8aaabb" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="7" x2="13" y2="13" stroke="#8aaabb" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+      hudSoundBtn.innerHTML = on ? onSvg : offSvg;
+      hudSoundBtn.title = on ? 'Mute sound' : 'Unmute sound';
+      const menuSoundBtn = document.getElementById('menu-sound-btn');
+      if (menuSoundBtn) {
+        menuSoundBtn.innerHTML = on ? menuIconOn : menuIconOff;
+        menuSoundBtn.title = on ? 'Mute sound' : 'Unmute sound';
+      }
+    };
+    syncSoundBtns();
+    const onSoundToggle = () => { setSoundEnabled(!isSoundEnabled()); syncSoundBtns(); };
+    hudSoundBtn.addEventListener('click', onSoundToggle);
+    document.getElementById('menu-sound-btn')?.addEventListener('click', onSoundToggle);
+
+    // How to Play buttons — menu and in-game HUD
+    document.getElementById('menu-htp-btn')?.addEventListener('click', () => {
+      this.showHowToPlay();
+    });
+    document.getElementById('btn-htp')?.addEventListener('click', () => {
+      this.showHowToPlay();
     });
 
     touchControls.init();
@@ -461,6 +503,8 @@ class UIOverlay {
   private renderDayReport(d: DayReportData): void {
     document.getElementById('dr-title')!.textContent = `Day ${d.day} Complete!`;
 
+    const balanceAfterRent = d.money - d.rentDue;
+    const struggling = balanceAfterRent < 0;
     document.getElementById('dr-stats')!.innerHTML = `
       <div class="dr-stat">
         <div class="dr-stat-label">Served</div>
@@ -479,8 +523,12 @@ class UIOverlay {
         <div class="dr-stat-val pink">${Math.round(d.avgCatHappiness)}%</div>
       </div>
       <div class="dr-stat" style="grid-column:1/-1">
-        <div class="dr-stat-label">Balance</div>
-        <div class="dr-stat-val gold" style="font-size:calc(20px * var(--gs))">${d.money} ✦</div>
+        <div class="dr-stat-label">Rent Due</div>
+        <div class="dr-stat-val" style="color:#FF7755">-${d.rentDue} ✦</div>
+      </div>
+      <div class="dr-stat" style="grid-column:1/-1">
+        <div class="dr-stat-label">Balance after rent</div>
+        <div class="dr-stat-val ${struggling ? '' : 'gold'}" style="${struggling ? 'color:#FF4444' : ''};font-size:calc(20px * var(--gs))">${balanceAfterRent} ✦${struggling ? '  ⚠ STRUGGLING' : ''}</div>
       </div>`;
 
     this.renderDrChart(d);
@@ -515,8 +563,6 @@ class UIOverlay {
   }
 
   private renderDrBookings(money: number, bookings: number): void {
-    const BOOKING_COST = 25;
-    const MAX_BOOKINGS = 4;
     const el = document.getElementById('dr-bookings-inner');
     if (!el) return;
     el.innerHTML = `
@@ -552,14 +598,14 @@ class UIOverlay {
       const newBtn = this.makeMenuBtn('New Game', 'secondary');
       newBtn.addEventListener('click', () => {
         this.hideMenu();
-        onNew();
+        this.showHowToPlay(onNew);
       });
       this.menuButtonsEl.appendChild(newBtn);
     } else {
       const startBtn = this.makeMenuBtn('Start Game', 'primary');
       startBtn.addEventListener('click', () => {
         this.hideMenu();
-        onStart();
+        this.showHowToPlay(onStart);
       });
       this.menuButtonsEl.appendChild(startBtn);
     }
@@ -567,6 +613,15 @@ class UIOverlay {
 
   hideMenu(): void {
     this.menuOverlayEl.classList.add('hidden');
+  }
+
+  showHowToPlay(onDone?: () => void): void {
+    this.howToPlayEl.classList.remove('hidden');
+    this.htpActionBtn.textContent = onDone ? "Let's Go! →" : 'Got it!';
+    this.htpActionBtn.onclick = () => {
+      this.howToPlayEl.classList.add('hidden');
+      onDone?.();
+    };
   }
 
   private makeMenuBtn(label: string, variant: 'primary' | 'secondary'): HTMLButtonElement {
@@ -583,9 +638,14 @@ class UIOverlay {
   openStore(silent = false): void { this.openManager(silent); }
   closeStore(silent = false): void { this.closeManager(silent); }
 
+  setBuildModeActive(active: boolean): void {
+    document.getElementById('btn-build')?.classList.toggle('active', active);
+  }
+
   openManager(silent = false): void {
     if (this.managerOpen) return;
     this.managerOpen = true;
+    this.lastManagerFingerprint = '';
     this.managerPanelEl.classList.add('open');
     this.managerBackdropEl.style.display = 'block';
     if (!silent) this.game?.events.emit('game_event', { type: 'open_store_panel' });
@@ -602,14 +662,35 @@ class UIOverlay {
 
   private switchSection(section: ManagerSection): void {
     this.activeSection = section;
+    this.lastManagerFingerprint = '';
     document.querySelectorAll('.mgr-nav-item').forEach(el => {
       (el as HTMLElement).classList.toggle('active', (el as HTMLElement).dataset.section === section);
     });
     this.refreshManager();
   }
 
+  private sectionFingerprint(s: UIState): string {
+    switch (this.activeSection) {
+      case 'overview':
+        return `${s.tierLevel}|${s.ambiance}|${s.money}|${s.employees}|${s.cooks}|${s.guards}|${s.caterers}|${(s.dailyMenuIds ?? []).join(',')}`;
+      case 'furnish':
+        return `${this.activeFurnishTab}|${s.tierLevel}|${s.ambiance}|${s.money}`;
+      case 'kitchen':
+        return `${(s.ownedMachines ?? []).join(',')}|${s.money}`;
+      case 'staff':
+        return `${s.tierLevel}|${s.money}|${s.employees}|${s.cooks}|${s.guards}|${s.caterers}`;
+      case 'menu':
+        return `${s.tierLevel}|${s.money}|${(s.ownedMachines ?? []).join(',')}|${(s.ownedRecipeIds ?? []).join(',')}|${(s.dailyMenuIds ?? []).join(',')}`;
+      case 'expand':
+        return `${s.money}|${s.reputation}|${(s.ownedExpansionIds ?? []).join(',')}`;
+    }
+  }
+
   private refreshManager(): void {
     if (!this.managerOpen || !this.lastState) return;
+    const fp = this.sectionFingerprint(this.lastState);
+    if (fp === this.lastManagerFingerprint) return;
+    this.lastManagerFingerprint = fp;
     const s = this.lastState;
     switch (this.activeSection) {
       case 'overview': this.renderOverview(s); break;
@@ -617,6 +698,7 @@ class UIOverlay {
       case 'kitchen':  this.renderKitchen(s);  break;
       case 'staff':    this.renderStaff(s);    break;
       case 'menu':     this.renderMenu(s);     break;
+      case 'expand':   this.renderExpand(s);   break;
     }
   }
 
@@ -692,8 +774,7 @@ class UIOverlay {
     html += `<div class="ov-card">`;
     html += `<div class="ov-card-title">Today&apos;s Menu</div>`;
     const dailyIds = new Set<string>(s.dailyMenuIds ?? s.ownedRecipeIds ?? ['moon_mocha', 'zerog_latte']);
-    type RichItem = { id: string; name: string };
-    const allItems = MENU_ITEMS as unknown as RichItem[];
+    const allItems = MENU_ITEMS as readonly MenuItemDef[];
     const onMenu = allItems.filter(i => dailyIds.has(i.id));
     const MAX_SHOW = 4;
     onMenu.slice(0, MAX_SHOW).forEach(item => {
@@ -750,6 +831,7 @@ class UIOverlay {
             <div class="sp-tier-bar-fill" style="width:${pct * 100}%"></div>
           </div>
           <div class="sp-tier-hint">${ambiance} / ${nextTier.ambianceRequired} ambiance &mdash; place decorations to upgrade</div>
+          ${this.renderAmbiancePath(ambiance, nextTier.ambianceRequired, tier)}
         </div>`;
     } else {
       html += `<div class="sp-tier-card sp-tier-maxed">Max tier reached: ${s.tierName ?? ''}</div>`;
@@ -864,8 +946,7 @@ class UIOverlay {
     const money = s.money ?? 0;
     const ownedMachines = new Set<string>(s.ownedMachines ?? ['espresso_machine']);
 
-    type RichItem = { id: string; name: string; price: number; prepTime: number; machines: string[]; recipeCost: number; description?: string };
-    const allItems = MENU_ITEMS as unknown as RichItem[];
+    const allItems = MENU_ITEMS as readonly MenuItemDef[];
 
     let html = '';
 
@@ -920,7 +1001,7 @@ class UIOverlay {
         Available to learn.</p>`;
       buyable.forEach(item => {
         const icon = FOOD_ICONS[item.id] ?? svg(`<rect x="6" y="6" width="12" height="12" rx="2" fill="#887766"/>`);
-        const cost = item.recipeCost;
+        const cost = item.recipeCost ?? 0;
         const canAfford = money >= cost;
         html += `
           <div class="si ${canAfford ? '' : ''}">
@@ -980,6 +1061,8 @@ class UIOverlay {
     const btnCls = o.owned ? ' owned-lbl' : '';
     const isDisabled = o.disabled || (!o.can && !o.owned);
     const disabledAttr = isDisabled ? ' disabled' : '';
+    const needsConfirm = !o.owned && !isDisabled && o.cost >= 300;
+    const confirmAttr = needsConfirm ? ' data-needs-confirm="1"' : '';
     return `
       <div class="si ${cls}">
         <div class="si-icon">${o.icon}</div>
@@ -989,39 +1072,152 @@ class UIOverlay {
         </div>
         <div class="si-right">
           <span class="si-cost${costCls}">${o.cost} ✦</span>
-          <button class="si-btn${btnCls}"${disabledAttr} ${o.attr}>${o.owned ? '&#10003; Owned' : o.btnLabel}</button>
+          <button class="si-btn${btnCls}"${disabledAttr}${confirmAttr} ${o.attr}>${o.owned ? '&#10003; Owned' : o.btnLabel}</button>
         </div>
       </div>`;
+  }
+
+  private renderExpand(s: UIState): void {
+    const owned = new Set<string>(s.ownedExpansionIds ?? []);
+    const money = s.money ?? 0;
+    const rep = s.reputation ?? 0;
+    let html = '';
+
+    html += `<p class="sp-meta">Purchase expansions to grow your café. Takes effect the next day.</p>`;
+
+    if (EXPANSION_ZONES.length === 0) {
+      html += `<p class="sp-empty">No expansions available yet.</p>`;
+    } else {
+      EXPANSION_ZONES.forEach(zone => {
+        const isOwned = owned.has(zone.id);
+        const repLocked = rep < zone.minReputation;
+        const canAfford = money >= zone.cost;
+        const can = !isOwned && !repLocked && canAfford;
+        const cls = isOwned ? 'owned' : can ? 'afford' : '';
+        const costCls = can || isOwned ? '' : ' dim';
+        const icon = svg(`
+          <rect x="3" y="10" width="22" height="14" rx="2" fill="#334455"/>
+          <rect x="3" y="7" width="10" height="7" rx="2" fill="#445566"/>
+          <rect x="15" y="7" width="10" height="7" rx="2" fill="#445566"/>
+          <rect x="12" y="5" width="4" height="4" rx="1" fill="#88ddff" opacity="0.6"/>
+        `);
+        const lockNote = repLocked
+          ? `<div style="font-size:calc(10px * var(--gs));color:#FF6644;margin-top:calc(3px * var(--gs))">Needs ${zone.minReputation} rep (you have ${rep})</div>`
+          : '';
+        html += `
+          <div class="si ${cls}">
+            <div class="si-icon">${icon}</div>
+            <div class="si-info">
+              <div class="si-name">${zone.name}</div>
+              <div class="si-desc">${zone.desc}</div>
+              ${lockNote}
+            </div>
+            <div class="si-right">
+              <span class="si-cost${costCls}">${zone.cost} ✦</span>
+              <button class="si-btn${isOwned ? ' owned-lbl' : ''}"${(isOwned || repLocked || !canAfford) ? ' disabled' : ''} data-buy-expansion="${zone.id}">
+                ${isOwned ? '&#10003; Owned' : 'Buy'}
+              </button>
+            </div>
+          </div>`;
+      });
+    }
+
+    this.managerContentEl.innerHTML = html;
+    this.attachListeners();
+  }
+
+  private renderAmbiancePath(currentAmbiance: number, needed: number, tier: number): string {
+    const deficit = needed - currentAmbiance;
+    if (deficit <= 0) return '';
+    // Find cheapest combination of available decoration items that covers the deficit
+    const candidates = DECORATION_ITEMS
+      .filter(d => d.ambianceValue > 0 && (!d.minTier || d.minTier <= tier))
+      .sort((a, b) => b.ambianceValue - a.ambianceValue);  // highest value first
+    if (candidates.length === 0) return '';
+
+    // Greedy fill: take multiples of the best-value/cost item until covered
+    const picks: string[] = [];
+    let remaining = deficit;
+    for (const item of candidates) {
+      if (remaining <= 0) break;
+      const count = Math.ceil(remaining / item.ambianceValue);
+      const qty = Math.min(count, 3); // cap display at 3 of any one item
+      picks.push(`${qty > 1 ? qty + '× ' : ''}${item.name} (+${qty * item.ambianceValue} ✦ ambiance)`);
+      remaining -= qty * item.ambianceValue;
+    }
+    if (picks.length === 0) return '';
+    return `<div style="font-size:calc(10px * var(--gs));color:var(--c-text-dim);margin-top:calc(4px * var(--gs));line-height:1.4">
+      Quick path: ${picks.slice(0, 2).join(', ')}
+    </div>`;
+  }
+
+  private withConfirm(btn: HTMLElement, action: () => void): void {
+    if (!btn.dataset.needsConfirm) { action(); return; }
+    if (btn.dataset.confirming === '1') {
+      btn.dataset.confirming = '';
+      btn.textContent = btn.dataset.origLabel ?? 'Buy';
+      btn.style.background = '';
+      action();
+    } else {
+      btn.dataset.confirming = '1';
+      btn.dataset.origLabel = btn.textContent ?? 'Buy';
+      btn.textContent = 'Confirm →';
+      btn.style.background = 'rgba(255,180,30,0.25)';
+      const reset = () => {
+        if (btn.dataset.confirming !== '1') return;
+        btn.dataset.confirming = '';
+        btn.textContent = btn.dataset.origLabel ?? 'Buy';
+        btn.style.background = '';
+      };
+      document.addEventListener('click', function handler(e) {
+        if (e.target !== btn) { reset(); document.removeEventListener('click', handler); }
+      });
+    }
   }
 
   private attachListeners(): void {
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-machine]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.game?.events.emit('game_event', { type: 'buy_machine', machineId: btn.dataset.buyMachine });
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'buy_machine', machineId: btn.dataset.buyMachine });
+        });
       });
     });
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-hire-staff]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.game?.events.emit('game_event', { type: 'hire_staff', role: btn.dataset.hireStaff as EmployeeRole });
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'hire_staff', role: btn.dataset.hireStaff as EmployeeRole });
+        });
       });
     });
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-place-decor]').forEach(btn => {
       btn.addEventListener('click', () => {
         const defId = btn.dataset.placeDecor;
-        this.closeManager();
-        setTimeout(() => {
-          this.game?.events.emit('game_event', { type: 'start_placement', defId });
-        }, 0);
+        this.withConfirm(btn, () => {
+          this.closeManager();
+          setTimeout(() => {
+            this.game?.events.emit('game_event', { type: 'start_placement', defId });
+          }, 0);
+        });
       });
     });
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-recipe]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.game?.events.emit('game_event', { type: 'buy_recipe', itemId: btn.dataset.buyRecipe });
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'buy_recipe', itemId: btn.dataset.buyRecipe });
+        });
       });
     });
     this.managerContentEl.querySelectorAll<HTMLElement>('[data-toggle-recipe]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.game?.events.emit('game_event', { type: 'toggle_daily_recipe', itemId: btn.dataset.toggleRecipe });
+      });
+    });
+    this.managerContentEl.querySelectorAll<HTMLElement>('[data-buy-expansion]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.withConfirm(btn, () => {
+          this.game?.events.emit('game_event', { type: 'buy_expansion', zoneId: btn.dataset.buyExpansion });
+        });
       });
     });
   }

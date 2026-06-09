@@ -40,6 +40,8 @@ export class KitchenSystem {
   trashCanY = 0;
 
   private autoCookTimer = 0;
+  private glitchTimers = new Map<number, number>(); // stationId → remaining ms
+  supplyRushMs = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -56,7 +58,7 @@ export class KitchenSystem {
     MACHINE_DEFS.filter(d => owned.has(d.id)).forEach(def => this.buildOneStation(def));
 
     this.trashCanX = 18 * TILE + TILE / 2;
-    this.trashCanY = 8 * TILE + TILE / 2;
+    this.trashCanY = 6 * TILE + TILE / 2;
     this.scene.add.sprite(this.trashCanX, this.trashCanY, 'obj_trash_can').setDepth(4).setOrigin(0.5, 0.7);
     this.scene.add.text(this.trashCanX, this.trashCanY - 16, 'Discard', {
       fontSize: '10px', color: '#998877', fontFamily: 'monospace',
@@ -86,7 +88,7 @@ export class KitchenSystem {
   }
 
   spawnOneCook(index: number, nameOffset: number): void {
-    const positions = [{ col: 12, row: 7 }, { col: 16, row: 7 }];
+    const positions = [{ col: 12, row: 5 }, { col: 16, row: 5 }];
     const pos = positions[index % positions.length];
     const name = EMPLOYEE_NAMES[(nameOffset + index) % EMPLOYEE_NAMES.length];
     const cook = new CookNpc(this.scene, pos.col * TILE + TILE / 2, pos.row * TILE + TILE / 2, name);
@@ -141,14 +143,14 @@ export class KitchenSystem {
   getReadyItemName(stationId: number): string | null {
     const stn = this.stations.find(s => s.id === stationId);
     if (!stn?.cookingItemId) return null;
-    return (MENU_ITEMS as unknown as MenuItemDef[]).find(m => m.id === stn.cookingItemId)?.name ?? null;
+    return (MENU_ITEMS as readonly MenuItemDef[]).find(m => m.id === stn.cookingItemId)?.name ?? null;
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────────
 
   startCooking(stationId: number, customers: Customer[], carriedFoodId: string | null): boolean {
     const stn = this.stations.find(s => s.id === stationId);
-    if (!stn || stn.isCooking) return false;
+    if (!stn || stn.isCooking || this.glitchTimers.has(stationId)) return false;
     const pending = this.getPendingOrder(stn.machineId, customers, carriedFoodId);
     if (!pending) return false;
     stn.isCooking = true;
@@ -175,10 +177,52 @@ export class KitchenSystem {
     }
   }
 
+  glitchStation(stationId: number, durationMs: number): void {
+    const stn = this.stations.find(s => s.id === stationId);
+    if (!stn || stn.isCooking) return;
+    this.glitchTimers.set(stationId, durationMs);
+    stn.sprite.setTint(0xFF3333);
+    stn.label.setText('!! OFFLINE !!');
+  }
+
+  startSupplyRush(durationMs: number): void {
+    this.supplyRushMs = durationMs;
+  }
+
+  isGlitched(stationId: number): boolean {
+    return this.glitchTimers.has(stationId);
+  }
+
+  stealFood(stationId: number): string | null {
+    const stn = this.stations.find(s => s.id === stationId);
+    if (!stn || !stn.isCooking || stn.cookProgress < 1) return null;
+    const name = (MENU_ITEMS as readonly MenuItemDef[]).find(m => m.id === stn.cookingItemId)?.name ?? stn.cookingItemId;
+    this.clearStation(stn);
+    return name ?? null;
+  }
+
   // ── Update loop ──────────────────────────────────────────────────────────────
 
-  update(delta: number, customers: Customer[], carriedFoodId: string | null): void {
+  update(delta: number, customers: Customer[], carriedFoodId: string | null, urgentMachineIds?: ReadonlySet<string>): void {
     this.cookNpcs.forEach(c => c.update(delta));
+
+    // Tick supply rush countdown
+    if (this.supplyRushMs > 0) this.supplyRushMs = Math.max(0, this.supplyRushMs - delta);
+
+    // Tick glitch countdowns and recover stations when timer expires
+    for (const [id, remaining] of this.glitchTimers) {
+      const next = remaining - delta;
+      if (next <= 0) {
+        this.glitchTimers.delete(id);
+        const stn = this.stations.find(s => s.id === id);
+        if (stn) {
+          stn.sprite.clearTint();
+          stn.label.setText(MACHINE_DEFS.find(d => d.id === stn.machineId)?.label ?? stn.machineId);
+        }
+      } else {
+        this.glitchTimers.set(id, next);
+      }
+    }
 
     if ((this.shopState.cooks ?? 0) > 0) {
       this.autoCookTimer -= delta;
@@ -188,21 +232,35 @@ export class KitchenSystem {
       }
     }
 
+    const cookDelta = this.supplyRushMs > 0 ? delta * 1.4 : delta;
+
     for (const stn of this.stations) {
+      const isGlitched = this.glitchTimers.has(stn.id);
       if (!stn.isCooking) {
+        if (isGlitched) continue; // skip tint logic while glitched (red tint stays)
         const hasPending = this.getPendingOrder(stn.machineId, customers, carriedFoodId) !== null;
-        if (hasPending) {
+        const isUrgent = hasPending && (urgentMachineIds?.has(stn.machineId) ?? false);
+        if (isUrgent) {
+          // Strong orange pulse + slight scale to draw the player's eye
+          const t = (Math.sin(this.scene.time.now * 0.008) + 1) / 2;
+          const g = Math.round(0x88 + t * 0x77);
+          stn.sprite.setTint((0xFF << 16) | (g << 8) | 0x00);
+          stn.sprite.setScale(1 + t * 0.06);
+        } else if (hasPending) {
+          // Ambient blue-white tint: someone ordered but it's not the player's concern
           const t = (Math.sin(this.scene.time.now * 0.005) + 1) / 2;
           const r = Math.round(0xAA + t * 0x55);
           const g = Math.round(0xCC + t * 0x33);
           stn.sprite.setTint((r << 16) | (g << 8) | 0xFF);
+          stn.sprite.setScale(1);
         } else {
           stn.sprite.clearTint();
+          stn.sprite.setScale(1);
         }
       }
 
       if (stn.isCooking && stn.cookProgress < 1) {
-        stn.cookProgress = Math.min(1, stn.cookProgress + delta / stn.cookTargetMs);
+        stn.cookProgress = Math.min(1, stn.cookProgress + cookDelta / stn.cookTargetMs);
         if (stn.progressFill && stn.progressBg) {
           stn.progressFill.clear();
           const fillW = Math.round(stn.cookProgress * 44);
@@ -250,6 +308,7 @@ export class KitchenSystem {
   }
 
   private startCookingVisual(stn: Station): void {
+    stn.sprite.setScale(1);
     stn.progressBg = this.scene.add.sprite(stn.worldX, stn.worldY - 50, 'ui_progress_bg').setDepth(20);
     stn.progressFill = this.scene.add.graphics().setDepth(21);
   }
@@ -263,11 +322,12 @@ export class KitchenSystem {
     stn.progressFill?.destroy(); stn.progressFill = undefined;
     stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
     stn.sprite.clearTint();
+    stn.sprite.setScale(1);
   }
 
   private getItem(itemId: string | null): MenuItemDef | null {
     if (!itemId) return null;
-    return (MENU_ITEMS as unknown as MenuItemDef[]).find(m => m.id === itemId) ?? null;
+    return (MENU_ITEMS as readonly MenuItemDef[]).find(m => m.id === itemId) ?? null;
   }
 
   private tryAutoCook(customers: Customer[], carriedFoodId: string | null): void {

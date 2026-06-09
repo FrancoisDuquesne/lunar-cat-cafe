@@ -131,6 +131,15 @@ export class CustomerSystem {
       .map(c => ({ customerId: c.customerId, x: c.x, y: c.y }));
   }
 
+  forceSpawnVip(): void {
+    const freeTable = this.tables.find(t => t.seats.some(s => !s.occupied));
+    if (!freeTable) return;
+    const type: CustomerType = 'scientist'; // VIP is always a scientist (distinct look)
+    const customer = this.seatNewCustomer(type, freeTable, false);
+    customer.tipMultiplier = 3;
+    this.scene.physics.add.collider(customer, this.wallGroup);
+  }
+
   // ── Update loop ──────────────────────────────────────────────────────────────
 
   update(delta: number, dayEnded: boolean, dayPhase: string, reputation: number, day: number): void {
@@ -172,7 +181,7 @@ export class CustomerSystem {
   }
 
   private createCustomerOfType(seatX: number, seatY: number, type: CustomerType, boostedPatience: boolean): Customer {
-    const spawnX = (14 + Math.floor(Math.random() * 4)) * TILE + TILE / 2;
+    const spawnX = 14 * TILE + TILE / 2 + (Math.floor(Math.random() * 3) - 1) * TILE;
     const spawnY = 16 * TILE + TILE / 2;
     const customer = new Customer(
       this.scene, spawnX, spawnY,
@@ -220,7 +229,7 @@ export class CustomerSystem {
     const labelText = overflow > 0
       ? `⏳ ${this.customerQueue.length} waiting (+${overflow})`
       : `⏳ ${this.customerQueue.length} waiting`;
-    this.queueLabel = this.scene.add.text(15.5 * TILE, 16 * TILE - 6, labelText, {
+    this.queueLabel = this.scene.add.text(14.5 * TILE, 15 * TILE - 6, labelText, {
       fontSize: '10px', color: '#FFD700', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 2,
       backgroundColor: '#00000077', padding: { x: 4, y: 2 },
@@ -228,9 +237,9 @@ export class CustomerSystem {
   }
 
   private getQueuePositions(): Array<{ x: number; y: number }> {
-    const cx = 15.5 * TILE;
-    const y1 = 16.5 * TILE;
-    const y2 = 17.2 * TILE;
+    const cx = 14.5 * TILE;
+    const y1 = 15.5 * TILE;
+    const y2 = 16.5 * TILE;
     return [
       { x: cx,            y: y1 },
       { x: cx - TILE,     y: y1 },
