@@ -160,45 +160,44 @@ export function createWallWarmTile(scene: Phaser.Scene): void {
 
 export function createWindowTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Deep space sky — very dark
-  g.fillStyle(0x030810, 1); g.fillRect(0, 0, TILE, TILE);
-  // Stars — varied colors and brightness
+  // Deep space sky — very dark navy
+  g.fillStyle(0x030812, 1); g.fillRect(0, 0, TILE, TILE);
+  // Stars
   g.fillStyle(0xFFFFFF, 1);
   [[5, 3], [11, 8], [19, 2], [3, 12], [28, 4], [15, 14], [23, 9], [6, 18]].forEach(([x, y]) => g.fillRect(x, y, 1, 1));
   g.fillStyle(0xFFEECC, 1);
   [[14, 6], [7, 10], [24, 13]].forEach(([x, y]) => g.fillRect(x, y, 2, 2));
   g.fillStyle(0xCCDDFF, 0.9);
   [[22, 3], [8, 15], [27, 11]].forEach(([x, y]) => g.fillRect(x, y, 1, 1));
-  g.fillStyle(0xFFAA66, 0.95); g.fillRect(17, 5, 2, 2); // orange-red star
-  // Subtle nebula colour in sky
+  g.fillStyle(0xFFAA66, 0.95); g.fillRect(17, 5, 2, 2);
+  // Faint Earth glow in upper right of window
+  g.fillStyle(0x2266AA, 0.30); g.fillCircle(26, 5, 5);
+  g.fillStyle(0x3388CC, 0.20); g.fillCircle(26, 5, 7);
+  g.fillStyle(0x44AACC, 0.12); g.fillCircle(26, 5, 9);
+  // Nebula haze
   g.fillStyle(0x221155, 0.10); g.fillRect(3, 3, TILE - 6, 16);
-  // Thin atmospheric glow above regolith
-  g.fillStyle(0x8899EE, 0.45); g.fillRect(0, 19, TILE, 1);
-  g.fillStyle(0x5577CC, 0.30); g.fillRect(0, 20, TILE, 1);
-  // Lunar horizon
-  g.fillStyle(0xD2CEB8, 0.95); g.fillRect(0, 21, TILE, 1);
-  // Regolith — wide band of moon surface visible through glass
-  g.fillStyle(0xC2BEA8, 1); g.fillRect(0, 22, TILE, 10);
-  g.fillStyle(0xB0AC98, 1); g.fillRect(0, 25, TILE, 7);
-  g.fillStyle(0x7A7060, 0.55); g.fillRect(0, 30, TILE, 2);
-  // Surface craters
-  g.fillStyle(0x888070, 0.9); g.fillCircle(21, 27, 3);
-  g.fillStyle(0xD8D4C0, 0.6); g.fillCircle(20, 26, 1);
-  g.fillStyle(0x888070, 0.7); g.fillCircle(8, 29, 2);
-  // Structural metal frame — dark steel
+  // Atmospheric glow above horizon
+  g.fillStyle(0x8899EE, 0.40); g.fillRect(0, 19, TILE, 1);
+  g.fillStyle(0x5577CC, 0.28); g.fillRect(0, 20, TILE, 1);
+  // Lunar horizon — cool blue-gray matching new moon tile
+  g.fillStyle(0x8090A0, 0.90); g.fillRect(0, 21, TILE, 1);
+  // Regolith — cool blue-gray
+  g.fillStyle(0x6A7080, 1); g.fillRect(0, 22, TILE, 10);
+  g.fillStyle(0x585E68, 1); g.fillRect(0, 27, TILE, 5);
+  g.fillStyle(0x40464E, 0.60); g.fillRect(0, 30, TILE, 2);
+  // Surface craters (cool tones)
+  g.fillStyle(0x444858, 0.9); g.fillCircle(21, 27, 3);
+  g.fillStyle(0x9AACB8, 0.6); g.fillCircle(20, 26, 1);
+  g.fillStyle(0x444858, 0.7); g.fillCircle(8, 29, 2);
+  // Metal frame
   g.fillStyle(0x4E5668, 1);
-  g.fillRect(0, 0, TILE, 3);
-  g.fillRect(0, TILE - 3, TILE, 3);
-  g.fillRect(0, 0, 3, TILE);
-  g.fillRect(TILE - 3, 0, 3, TILE);
-  // Inner frame chamfer
+  g.fillRect(0, 0, TILE, 3); g.fillRect(0, TILE - 3, TILE, 3);
+  g.fillRect(0, 0, 3, TILE); g.fillRect(TILE - 3, 0, 3, TILE);
   g.fillStyle(0x282E38, 1);
-  g.fillRect(3, 3, TILE - 6, 1);
-  g.fillRect(3, 3, 1, TILE - 6);
-  // Frame top highlight
+  g.fillRect(3, 3, TILE - 6, 1); g.fillRect(3, 3, 1, TILE - 6);
   g.fillStyle(0x7A8898, 0.85); g.fillRect(0, 0, TILE, 1);
-  // Glass shimmer — diagonal reflection band
-  g.fillStyle(0xCCEEFF, 0.20); g.fillRect(3, 3, 4, TILE - 6);
+  // Glass shimmer
+  g.fillStyle(0xCCEEFF, 0.18); g.fillRect(3, 3, 4, TILE - 6);
   gen(scene, g, 'tile_window', TILE, TILE);
 }
 
@@ -240,20 +239,20 @@ export function createSpaceTile(scene: Phaser.Scene): void {
 
 export function createMoonTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Lunar regolith — warm silver-gray
-  g.fillStyle(0xC0BCA8, 1); g.fillRect(0, 0, TILE, TILE);
-  // Subtle directional texture (light from upper-right)
-  g.fillStyle(0xD0CCB8, 1); g.fillRect(0, 0, TILE, 8);   // sunlit top band
-  g.fillStyle(0xB0AC98, 0.5); g.fillRect(0, 24, TILE, 8); // shadow bottom
-  // Craters with directional lighting (sun from upper-right)
+  // Lunar regolith — cool blue-gray under starlight
+  g.fillStyle(0x6A7080, 1); g.fillRect(0, 0, TILE, TILE);
+  // Subtle directional texture (distant earthlight from upper-left)
+  g.fillStyle(0x7A8090, 0.7); g.fillRect(0, 0, TILE, 8);   // lit top band
+  g.fillStyle(0x50585E, 0.5); g.fillRect(0, 24, TILE, 8);   // deep shadow bottom
+  // Craters with cool blue-shadow lighting
   const crats = [[8, 8, 5], [22, 18, 4], [4, 22, 3], [26, 6, 3]];
   crats.forEach(([cx, cy, r]) => {
-    g.fillStyle(0x888070, 0.9); g.fillCircle(cx, cy, r);           // crater floor
-    g.fillStyle(0xD8D4C0, 0.7); g.fillCircle(cx - r * 0.5, cy - r * 0.5, r * 0.5); // sunlit rim
-    g.fillStyle(0x686058, 0.5); g.fillCircle(cx + r * 0.4, cy + r * 0.4, r * 0.4); // shadow rim
+    g.fillStyle(0x444858, 0.9); g.fillCircle(cx, cy, r);              // crater floor
+    g.fillStyle(0x9AACB8, 0.6); g.fillCircle(cx - r * 0.5, cy - r * 0.5, r * 0.5); // earthlit rim
+    g.fillStyle(0x303440, 0.6); g.fillCircle(cx + r * 0.4, cy + r * 0.4, r * 0.4); // shadow rim
   });
-  // Dust grain particles
-  g.fillStyle(0xA8A490, 0.4);
+  // Faint blue-tinted dust
+  g.fillStyle(0x8090A0, 0.35);
   [[13, 4], [20, 12], [7, 19], [28, 28], [16, 28]].forEach(([x, y]) => g.fillRect(x, y, 2, 1));
   gen(scene, g, 'tile_moon', TILE, TILE);
 }
@@ -297,38 +296,57 @@ export function createDomeTile(scene: Phaser.Scene): void {
 export function createTableTexture(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
   const W = 52, H = 44;
-  // Table top — warm mahogany
-  g.fillStyle(0x6A3810, 1); g.fillRoundedRect(2, 2, W - 4, H - 14, 6);
-  // Cel-shade highlight
-  g.fillStyle(0xAA6030, 1); g.fillRoundedRect(4, 4, W - 8, 10, 4);
-  // Wood grain lines
-  g.fillStyle(0x4A2408, 1);
-  [14, 26, 38].forEach(x => g.fillRect(x, 5, 2, H - 20));
-  // Gold trim edge
-  g.fillStyle(0xF0C018, 1); g.fillRect(2, 2, W - 4, 3);
-  // Legs — gold
-  g.fillStyle(0xD4A820, 1); g.fillRect(2, H - 12, W - 4, 5);
-  [[6, H - 7], [W - 10, H - 7]].forEach(([x, y]) => {
-    g.fillStyle(0xD4A820, 1); g.fillRect(x, y, 6, 7);
-  });
-  ol(g, 2); g.strokeRoundedRect(2, 2, W - 4, H - 14, 6);
-  g.lineStyle(2, OUT, 1); g.strokeRect(2, H - 12, W - 4, 5);
+  // Drop shadow
+  g.fillStyle(0x000000, 0.20); g.fillEllipse(27, 22, 46, 18);
+  // Table top — ivory marble with warm tint
+  g.fillStyle(0xEFE4CC, 1); g.fillEllipse(26, 16, 46, 24);
+  // Marble pattern — subtle gray veins
+  g.lineStyle(1, 0xC8BAA0, 0.55);
+  g.beginPath(); g.moveTo(12, 12); g.lineTo(24, 20); g.lineTo(20, 26); g.strokePath();
+  g.beginPath(); g.moveTo(32, 8); g.lineTo(42, 18); g.strokePath();
+  g.beginPath(); g.moveTo(16, 21); g.lineTo(30, 14); g.strokePath();
+  // Highlight centre
+  g.fillStyle(0xFAF3E0, 0.65); g.fillEllipse(21, 13, 18, 10);
+  // Rim edge stroke
+  g.lineStyle(2, 0xA89070, 1); g.strokeEllipse(26, 16, 46, 24);
+  // Apron (side of table)
+  g.fillStyle(0xC4A070, 1); g.fillRoundedRect(5, 25, 42, 8, 3);
+  g.fillStyle(0xD8B880, 0.55); g.fillRect(5, 25, 42, 2);
+  g.fillStyle(0x6A5030, 1);    g.fillRect(5, 32, 42, 1);
+  // Legs
+  g.fillStyle(0x9A7848, 1);
+  g.fillRect(9, 33, 7, 10); g.fillRect(36, 33, 7, 10);
+  g.lineStyle(2, OUT, 1);
+  g.strokeRect(9, 33, 7, 10); g.strokeRect(36, 33, 7, 10);
   gen(scene, g, 'obj_table', W, H);
 }
 
 export function createGroupTableTexture(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
   const W = 76, H = 44;
-  g.fillStyle(0x6A3810, 1); g.fillRoundedRect(2, 2, W - 4, H - 14, 6);
-  g.fillStyle(0xAA6030, 1); g.fillRoundedRect(4, 4, W - 8, 10, 4);
-  g.fillStyle(0x4A2408, 1);
-  [18, 34, 50].forEach(x => g.fillRect(x, 5, 2, H - 20));
-  g.fillStyle(0xF0C018, 1); g.fillRect(2, 2, W - 4, 3);
-  g.fillStyle(0xD4A820, 1); g.fillRect(2, H - 12, W - 4, 5);
-  [[6, H - 7], [W - 10, H - 7]].forEach(([x, y]) => {
-    g.fillStyle(0xD4A820, 1); g.fillRect(x, y, 6, 7);
-  });
-  ol(g, 2); g.strokeRoundedRect(2, 2, W - 4, H - 14, 6);
+  // Drop shadow
+  g.fillStyle(0x000000, 0.20); g.fillEllipse(39, 22, 70, 18);
+  // Table top — ivory marble
+  g.fillStyle(0xEFE4CC, 1); g.fillEllipse(38, 16, 70, 24);
+  // Marble veins
+  g.lineStyle(1, 0xC8BAA0, 0.55);
+  g.beginPath(); g.moveTo(12, 12); g.lineTo(30, 20); g.lineTo(24, 26); g.strokePath();
+  g.beginPath(); g.moveTo(44, 8); g.lineTo(60, 18); g.strokePath();
+  g.beginPath(); g.moveTo(18, 22); g.lineTo(42, 13); g.strokePath();
+  g.beginPath(); g.moveTo(52, 20); g.lineTo(66, 14); g.strokePath();
+  // Highlight
+  g.fillStyle(0xFAF3E0, 0.60); g.fillEllipse(30, 13, 26, 10);
+  // Rim
+  g.lineStyle(2, 0xA89070, 1); g.strokeEllipse(38, 16, 70, 24);
+  // Apron
+  g.fillStyle(0xC4A070, 1); g.fillRoundedRect(5, 25, W - 10, 8, 3);
+  g.fillStyle(0xD8B880, 0.55); g.fillRect(5, 25, W - 10, 2);
+  g.fillStyle(0x6A5030, 1);    g.fillRect(5, 32, W - 10, 1);
+  // Legs
+  g.fillStyle(0x9A7848, 1);
+  g.fillRect(9, 33, 7, 10); g.fillRect(W - 16, 33, 7, 10);
+  g.lineStyle(2, OUT, 1);
+  g.strokeRect(9, 33, 7, 10); g.strokeRect(W - 16, 33, 7, 10);
   gen(scene, g, 'obj_table_group', W, H);
 }
 
@@ -1014,56 +1032,73 @@ export function createCustomerTextures(scene: Phaser.Scene): void {
 // ─────────────────────────────────────────────
 
 function createCatVariant(scene: Phaser.Scene, key: string, bodyColor: number, darkColor: number): void {
-  const W = 20, H = 16;
+  const W = 28, H = 22;
   const g = makeGraphics(scene);
   // Body
-  g.fillStyle(bodyColor, 1); g.fillEllipse(10, 12, 16, 8);
-  g.fillStyle(darkColor, 0.35); g.fillEllipse(10, 13, 14, 5);
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(14, 18, 22, 9);
+  g.fillStyle(darkColor, 0.28); g.fillEllipse(14, 20, 18, 5);
+  // Tail (curled right side)
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(25, 16, 7, 5);
+  g.fillStyle(darkColor, 0.25); g.fillEllipse(25, 17, 5, 3);
+  // Front paws
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(9, 21, 6, 4);
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(16, 21, 6, 4);
   // Head
-  g.fillStyle(bodyColor, 1); g.fillCircle(9, 7, 7);
+  g.fillStyle(bodyColor, 1);    g.fillCircle(13, 9, 8);
   // Ears
   g.fillStyle(bodyColor, 1);
-  g.fillTriangle(3, 7, 5, 1, 8, 6);
-  g.fillTriangle(10, 6, 13, 1, 15, 7);
+  g.fillTriangle(5, 8, 8, 1, 12, 7);
+  g.fillTriangle(14, 7, 18, 1, 21, 8);
   // Inner ear
   g.fillStyle(darkColor, 0.55);
-  g.fillTriangle(4, 6, 5, 2, 7, 6);
-  g.fillTriangle(11, 6, 13, 2, 14, 6);
-  // Eyes — bright and expressive
-  g.fillStyle(COLORS.CAT_EYE, 1); g.fillCircle(6, 7, 2); g.fillCircle(12, 7, 2);
-  g.fillStyle(0x111122, 1); g.fillCircle(6, 7, 1); g.fillCircle(12, 7, 1);
-  g.fillStyle(0xFFFFFF, 1); g.fillCircle(6, 6, 0.7); g.fillCircle(12, 6, 0.7);
+  g.fillTriangle(6, 8, 8, 2, 11, 7);
+  g.fillTriangle(15, 7, 18, 2, 20, 8);
+  // Eyes — large and expressive
+  g.fillStyle(COLORS.CAT_EYE, 1); g.fillCircle(9, 9, 3); g.fillCircle(17, 9, 3);
+  g.fillStyle(0x111122, 1);        g.fillCircle(9, 9, 1.5); g.fillCircle(17, 9, 1.5);
+  g.fillStyle(0xFFFFFF, 1);        g.fillCircle(10, 8, 1); g.fillCircle(18, 8, 1);
   // Nose
-  g.fillStyle(COLORS.CAT_NOSE, 1); g.fillTriangle(8, 9, 9, 10, 10, 9);
+  g.fillStyle(COLORS.CAT_NOSE, 1); g.fillTriangle(11, 12, 13, 14, 15, 12);
+  // Mouth (little "w" smile)
+  g.lineStyle(1.5, darkColor, 0.6);
+  g.lineBetween(12, 14, 11, 16); g.lineBetween(14, 14, 15, 16);
   // Whiskers
-  g.lineStyle(1, darkColor, 0.45);
-  g.lineBetween(2, 8, 6, 8); g.lineBetween(2, 9, 6, 9);
-  g.lineBetween(12, 8, 17, 8); g.lineBetween(12, 9, 17, 9);
-  // Tail
-  g.fillStyle(bodyColor, 1); g.fillEllipse(18, 12, 5, 4);
-  g.fillStyle(darkColor, 0.3); g.fillEllipse(18, 13, 4, 3);
+  g.lineStyle(1, darkColor, 0.5);
+  g.lineBetween(1, 11, 8, 12); g.lineBetween(1, 13, 8, 13);
+  g.lineBetween(18, 12, 26, 11); g.lineBetween(18, 13, 26, 13);
+  // Outline
   ol(g, 2);
-  g.strokeCircle(9, 7, 7);
-  g.strokeEllipse(10, 12, 16, 8);
+  g.strokeCircle(13, 9, 8);
+  g.strokeEllipse(14, 18, 22, 9);
   gen(scene, g, key, W, H);
 }
 
 function createCatSleeping(scene: Phaser.Scene, key: string, bodyColor: number, darkColor: number): void {
-  const W = 22, H = 12;
+  const W = 28, H = 16;
   const g = makeGraphics(scene);
-  g.fillStyle(bodyColor, 1); g.fillEllipse(11, 7, 20, 9);
-  g.fillStyle(darkColor, 0.3); g.fillEllipse(11, 9, 18, 5);
-  g.fillStyle(bodyColor, 1); g.fillCircle(5, 6, 5);
-  g.fillStyle(bodyColor, 1); g.fillTriangle(1, 4, 3, 0, 6, 4);
-  g.fillStyle(darkColor, 0.5); g.fillTriangle(2, 4, 3, 1, 5, 4);
-  // Closed eyes (curved arcs)
-  g.lineStyle(2, darkColor, 1);
-  g.beginPath(); g.arc(4, 6, 2, 0.1, Math.PI - 0.1); g.strokePath();
-  g.beginPath(); g.arc(7, 6, 2, 0.1, Math.PI - 0.1); g.strokePath();
-  g.fillStyle(bodyColor, 1); g.fillEllipse(19, 8, 5, 4);
+  // Curled body
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(14, 11, 24, 10);
+  g.fillStyle(darkColor, 0.25); g.fillEllipse(14, 13, 20, 6);
+  // Tail curling around
+  g.fillStyle(bodyColor, 1);    g.fillEllipse(24, 11, 8, 5);
+  g.fillStyle(darkColor, 0.2);  g.fillEllipse(24, 12, 6, 3);
+  // Head resting
+  g.fillStyle(bodyColor, 1);    g.fillCircle(6, 7, 6);
+  // Ear
+  g.fillStyle(bodyColor, 1);    g.fillTriangle(1, 6, 4, 1, 8, 5);
+  g.fillStyle(darkColor, 0.5);  g.fillTriangle(2, 6, 4, 2, 7, 5);
+  // Closed crescent eyes
+  g.lineStyle(2.5, darkColor, 1);
+  g.beginPath(); g.arc(4, 8, 2.5, 0.15, Math.PI - 0.15); g.strokePath();
+  g.beginPath(); g.arc(9, 8, 2.5, 0.15, Math.PI - 0.15); g.strokePath();
+  // Whiskers
+  g.lineStyle(1, darkColor, 0.4);
+  g.lineBetween(0, 8, 4, 9); g.lineBetween(0, 10, 4, 10);
+  g.lineBetween(9, 9, 13, 8); g.lineBetween(9, 10, 13, 10);
+  // Outline
   ol(g, 2);
-  g.strokeEllipse(11, 7, 20, 9);
-  g.strokeCircle(5, 6, 5);
+  g.strokeEllipse(14, 11, 24, 10);
+  g.strokeCircle(6, 7, 6);
   gen(scene, g, key, W, H);
 }
 

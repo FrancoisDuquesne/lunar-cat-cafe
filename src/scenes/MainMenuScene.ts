@@ -48,6 +48,7 @@ export class MainMenuScene extends Phaser.Scene {
 
   private buildBackground(): void {
     const cx = GAME_W / 2;
+    const domeY = GAME_H - 60;
 
     // Deep space gradient
     const bg = this.add.graphics();
@@ -78,10 +79,24 @@ export class MainMenuScene extends Phaser.Scene {
       bg.fillRect(sx, sy, big ? 2 : 1, big ? 2 : 1);
     }
 
+    // Earth (top-right corner)
+    const earth = this.add.graphics();
+    earth.fillStyle(COLORS.EARTH_OCEAN, 1); earth.fillCircle(GAME_W - 84, 78, 52);
+    earth.fillStyle(0x104060, 0.35);        earth.fillCircle(GAME_W - 84, 78, 52);
+    earth.fillStyle(COLORS.EARTH_LAND, 1);
+    earth.fillEllipse(GAME_W - 94, 56, 32, 24);
+    earth.fillEllipse(GAME_W - 62, 90, 24, 20);
+    earth.fillEllipse(GAME_W - 100, 88, 18, 14);
+    earth.fillStyle(COLORS.EARTH_CLOUD, 0.9);
+    earth.fillEllipse(GAME_W - 86, 50, 34, 14);
+    earth.fillEllipse(GAME_W - 56, 72, 26, 12);
+    earth.fillEllipse(GAME_W - 100, 80, 20, 10);
+    earth.fillStyle(0x44AAFF, 0.18); earth.fillCircle(GAME_W - 84, 78, 58);
+
     // Moon surface
     const moon = this.add.graphics();
     moon.fillStyle(0x9A9AAA, 1);
-    moon.fillEllipse(cx, GAME_H + 50, GAME_W * 1.3, 220);
+    moon.fillEllipse(cx, GAME_H + 30, GAME_W * 1.3, 220);
     moon.fillStyle(0x787888, 1);
     [[cx - 220, GAME_H - 14, 20], [cx + 140, GAME_H - 2, 14], [cx - 50, GAME_H + 18, 10]].forEach(
       ([x, y, r]) => moon.fillCircle(x as number, y as number, r as number),
@@ -97,53 +112,108 @@ export class MainMenuScene extends Phaser.Scene {
       },
     );
 
-    // Bio-dome glow
-    const dome = this.add.graphics();
-    dome.fillStyle(0xFF8800, 0.18); dome.fillEllipse(cx, GAME_H - 50, 400, 230);
-    dome.fillStyle(0xFF6600, 0.12); dome.fillEllipse(cx, GAME_H - 50, 340, 190);
-    dome.fillStyle(0xFFAA00, 0.06); dome.fillEllipse(cx, GAME_H - 50, 280, 160);
-    dome.fillStyle(0x080318, 0.6);  dome.fillEllipse(cx, GAME_H - 50, 370, 205);
-    dome.lineStyle(3, 0xC8920A, 0.95);
-    dome.strokeEllipse(cx, GAME_H - 50, 370, 205);
-    dome.lineStyle(1, 0xC8920A, 0.22);
-    for (let gx = -140; gx <= 140; gx += 46) {
-      dome.lineBetween(cx + gx, GAME_H - 160, cx + gx * 0.3, GAME_H + 10);
-    }
-    dome.fillStyle(0xFFCC66, 0.14);
-    dome.fillRoundedRect(cx - 100, GAME_H - 150, 68, 48, 6);
-    dome.fillRoundedRect(cx + 22, GAME_H - 138, 68, 48, 6);
+    // ── Warm glow pooling up from dome — sets the cozy mood ──
+    const warmGlow = this.add.graphics();
+    warmGlow.fillStyle(0xFF9933, 0.07); warmGlow.fillEllipse(cx, domeY - 30, 620, 420);
+    warmGlow.fillStyle(0xFFBB55, 0.06); warmGlow.fillEllipse(cx, domeY - 10, 440, 280);
 
-    // Earth
-    const earth = this.add.graphics();
-    earth.fillStyle(COLORS.EARTH_OCEAN, 1); earth.fillCircle(GAME_W - 84, 78, 52);
-    earth.fillStyle(0x104060, 0.35);        earth.fillCircle(GAME_W - 84, 78, 52);
-    earth.fillStyle(COLORS.EARTH_LAND, 1);
-    earth.fillEllipse(GAME_W - 94, 56, 32, 24);
-    earth.fillEllipse(GAME_W - 62, 90, 24, 20);
-    earth.fillEllipse(GAME_W - 100, 88, 18, 14);
-    earth.fillStyle(COLORS.EARTH_CLOUD, 0.9);
-    earth.fillEllipse(GAME_W - 86, 50, 34, 14);
-    earth.fillEllipse(GAME_W - 56, 72, 26, 12);
-    earth.fillEllipse(GAME_W - 100, 80, 20, 10);
-    earth.fillStyle(0x44AAFF, 0.18); earth.fillCircle(GAME_W - 84, 78, 58);
+    // ── Bio-dome — warm café interior visible through the glass ──
+    const dome = this.add.graphics();
+    // Warm interior fill (lamp-lit café)
+    dome.fillStyle(0xFFAA44, 0.22); dome.fillEllipse(cx, domeY, 420, 220);
+    dome.fillStyle(0xFF8811, 0.15); dome.fillEllipse(cx, domeY, 360, 190);
+    // Dark glass silhouette (slightly translucent so interior shows through)
+    dome.fillStyle(0x080A20, 0.52);  dome.fillEllipse(cx, domeY, 420, 220);
+    // Café interior silhouettes — tables, counter, chairs
+    dome.fillStyle(0x3A2510, 0.85);
+    dome.fillRoundedRect(cx - 110, domeY - 30, 54, 28, 4);   // left table top
+    dome.fillRect(cx - 96, domeY - 2, 8, 22);                  // left table leg L
+    dome.fillRect(cx - 70, domeY - 2, 8, 22);                  // left table leg R
+    dome.fillRoundedRect(cx + 56, domeY - 24, 54, 28, 4);     // right table top
+    dome.fillRect(cx + 68, domeY - 2, 8, 22);                  // right table leg L
+    dome.fillRect(cx + 92, domeY - 2, 8, 22);                  // right table leg R
+    // Tiny cups on tables
+    dome.fillStyle(0xFFDD99, 0.75);
+    dome.fillEllipse(cx - 83, domeY - 18, 12, 8);   // cup on left table
+    dome.fillEllipse(cx + 85, domeY - 11, 12, 8);   // cup on right table
+    // Counter/bar silhouette at back
+    dome.fillStyle(0x2A1A08, 0.9);
+    dome.fillRoundedRect(cx - 148, domeY - 68, 296, 18, 3);
+    // Hanging pendant lamps (small warm circles)
+    dome.fillStyle(0xFFEEBB, 0.90);
+    dome.fillCircle(cx - 60, domeY - 78, 6);
+    dome.fillCircle(cx,      domeY - 82, 6);
+    dome.fillCircle(cx + 60, domeY - 78, 6);
+    dome.fillStyle(0xFFDD88, 0.28);
+    dome.fillCircle(cx - 60, domeY - 78, 14);
+    dome.fillCircle(cx,      domeY - 82, 14);
+    dome.fillCircle(cx + 60, domeY - 78, 14);
+    // Glass dome frame
+    dome.lineStyle(3, 0xC8920A, 0.95);
+    dome.strokeEllipse(cx, domeY, 420, 220);
+    // Structural ribs
+    dome.lineStyle(1, 0xC8920A, 0.28);
+    for (let gx = -160; gx <= 160; gx += 53) {
+      dome.lineBetween(cx + gx, domeY - 110, cx + gx * 0.25, domeY + 110);
+    }
+    // Sleeping cat silhouette in dome (sitting at left table)
+    dome.fillStyle(0x1A0E04, 0.9);
+    dome.fillEllipse(cx - 83, domeY + 12, 28, 14);  // sleeping cat body
+    dome.fillCircle(cx - 98, domeY + 8, 7);          // head
+    dome.fillTriangle(cx - 102, domeY + 3, cx - 98, domeY - 3, cx - 94, domeY + 3); // ear
 
     // Dome pulse animation
     this.tweens.add({
-      targets: dome, alpha: { from: 1, to: 0.82 },
-      duration: 3000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      targets: dome, alpha: { from: 1, to: 0.88 },
+      duration: 3200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    this.tweens.add({
+      targets: warmGlow, alpha: { from: 1, to: 0.65 },
+      duration: 4000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
 
-    // Twinkling particles
-    const twinkleKeys = ['particle_star', 'particle_heart', 'particle_coin'];
+    // ── Steam / hearts drifting up from dome ──
+    this.add.particles(cx, domeY - 100, 'particle_steam', {
+      speed: { min: 8, max: 20 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.45, end: 0 },
+      lifespan: { min: 1200, max: 2400 },
+      frequency: 600,
+      gravityY: -18,
+      angle: { min: -25, max: 25 },
+      x: { min: -110, max: 110 },
+    }).setDepth(2);
+
     this.time.addEvent({
-      delay: 350, loop: true,
+      delay: 2800, loop: true,
+      callback: () => {
+        const hx = cx + (Math.random() - 0.5) * 180;
+        const spr = this.add.sprite(hx, domeY - 90, 'particle_heart')
+          .setAlpha(0).setDepth(3).setScale(0.55);
+        this.tweens.add({
+          targets: spr,
+          alpha: { from: 0, to: 0.7 },
+          y: spr.y - 60,
+          duration: 1600, ease: 'Sine.easeOut',
+          onComplete: () => this.tweens.add({
+            targets: spr, alpha: 0, duration: 400,
+            onComplete: () => spr.destroy(),
+          }),
+        });
+      },
+    });
+
+    // Twinkling particles (stars in sky)
+    const twinkleKeys = ['particle_star', 'particle_coin'];
+    this.time.addEvent({
+      delay: 380, loop: true,
       callback: () => {
         const key = twinkleKeys[Math.floor(Math.random() * twinkleKeys.length)];
-        const spr = this.add.sprite(Math.random() * GAME_W, Math.random() * GAME_H * 0.65, key)
-          .setAlpha(0).setDepth(1).setScale(0.45 + Math.random() * 0.3);
+        const spr = this.add.sprite(Math.random() * GAME_W, Math.random() * GAME_H * 0.60, key)
+          .setAlpha(0).setDepth(1).setScale(0.4 + Math.random() * 0.25);
         this.tweens.add({
-          targets: spr, alpha: { from: 0, to: 0.85 },
-          duration: 180, yoyo: true,
+          targets: spr, alpha: { from: 0, to: 0.75 },
+          duration: 200, yoyo: true,
           onComplete: () => spr.destroy(),
         });
       },
@@ -152,16 +222,21 @@ export class MainMenuScene extends Phaser.Scene {
 
   private buildCats(): void {
     const cx = GAME_W / 2;
+    const domeY = GAME_H - 60;
 
-    // Small cat sprites flanking where the title will appear (HTML overlay)
-    const catL = this.add.sprite(cx - 88, 140, 'cat_orange').setScale(2.4).setDepth(11);
-    const catR = this.add.sprite(cx + 86, 143, 'cat_cream').setScale(2.4).setDepth(11).setFlipX(true);
-    const catExL = this.add.sprite(cx - 320, GAME_H - 130, 'cat_gray').setScale(1.8).setDepth(11);
-    const catExR = this.add.sprite(cx + 310, GAME_H - 135, 'cat_black').setScale(1.8).setDepth(11).setFlipX(true);
+    // Two cats flanking title
+    const catL = this.add.sprite(cx - 92, 138, 'cat_orange').setScale(2.6).setDepth(11);
+    const catR = this.add.sprite(cx + 90, 141, 'cat_cream').setScale(2.6).setDepth(11).setFlipX(true);
+    // Two cats perched on the moon surface beside the dome
+    const catExL = this.add.sprite(cx - 240, domeY - 28, 'cat_gray').setScale(2.0).setDepth(12);
+    const catExR = this.add.sprite(cx + 232, domeY - 32, 'cat_black').setScale(2.0).setDepth(12).setFlipX(true);
+    // Sleeping cat on moon surface
+    const catSleep = this.add.sprite(cx - 380, domeY + 10, 'cat_orange_sleep').setScale(1.8).setDepth(12);
 
-    this.tweens.add({ targets: catL,   y: '+=5', duration: 1900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.tweens.add({ targets: catR,   y: '+=5', duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.tweens.add({ targets: catExL, y: '+=4', duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.tweens.add({ targets: catExR, y: '+=4', duration: 2100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: catL,     y: '+=6', duration: 1900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: catR,     y: '+=6', duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: catExL,   y: '+=4', duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: catExR,   y: '+=4', duration: 2100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: catSleep, y: '+=3', duration: 3200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
   }
 }

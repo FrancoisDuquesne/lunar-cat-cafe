@@ -35,4 +35,5 @@ export class UIScene extends Phaser.Scene {
       this.game.events.off('game_event', undefined, this);
     }, this);
   }
+
 }

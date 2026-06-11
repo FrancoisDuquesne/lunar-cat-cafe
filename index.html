@@ -45,6 +45,20 @@
       image-rendering: crisp-edges;
     }
 
+    /* ── VIGNETTE — frames the game canvas ───────────────────── */
+    #vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9;
+      background: radial-gradient(
+        ellipse 72% 70% at 50% 50%,
+        transparent 38%,
+        rgba(1, 3, 12, 0.38) 65%,
+        rgba(1, 3, 12, 0.75) 100%
+      );
+    }
+
     /* ── UI ROOT ──────────────────────────────────────────────── */
     #ui-root {
       position: fixed;
@@ -318,14 +332,15 @@
       position: fixed;
       top: 50%;
       left: 50%;
-      transform: translate(-50%, -50%) scale(0.96);
-      width: min(calc(740px * var(--gs)), 96vw);
-      max-height: min(calc(500px * var(--gs)), 88vh);
-      background: rgba(10, 6, 24, 0.98);
-      border: 1px solid rgba(240, 192, 24, 0.28);
-      border-radius: calc(16px * var(--gs));
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
+      transform: translate(-50%, -50%) scale(0.95);
+      width: min(calc(940px * var(--gs)), 95vw);
+      max-height: min(calc(590px * var(--gs)), 88vh);
+      background: linear-gradient(180deg, rgba(6,3,18,0.99) 0%, rgba(10,5,26,0.98) 100%);
+      border: 1px solid rgba(100,200,255,0.14);
+      border-radius: calc(14px * var(--gs));
+      box-shadow: 0 0 80px rgba(0,160,255,0.06), 0 32px 100px rgba(0,0,0,0.85);
+      backdrop-filter: blur(28px);
+      -webkit-backdrop-filter: blur(28px);
       display: flex;
       flex-direction: column;
       z-index: 50;
@@ -341,23 +356,29 @@
     }
 
     .mgr-header {
+      flex-shrink: 0;
+      background: linear-gradient(180deg, rgba(0,80,160,0.10) 0%, transparent 100%);
+      border-radius: calc(14px * var(--gs)) calc(14px * var(--gs)) 0 0;
+      padding: calc(14px * var(--gs)) calc(20px * var(--gs)) 0;
+    }
+
+    .mgr-header-top {
       display: flex;
       align-items: center;
       gap: calc(10px * var(--gs));
-      padding: calc(13px * var(--gs)) calc(18px * var(--gs)) calc(11px * var(--gs));
-      border-bottom: 1px solid rgba(240, 192, 24, 0.12);
-      flex-shrink: 0;
+      margin-bottom: calc(10px * var(--gs));
     }
 
     .mgr-title {
       flex: 1;
-      font-size: calc(15px * var(--gs));
+      font-size: calc(16px * var(--gs));
       font-weight: 700;
-      color: var(--c-gold);
-      letter-spacing: -0.01em;
+      color: #88ddff;
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 24px rgba(80,180,255,0.45);
       display: flex;
       align-items: center;
-      gap: calc(7px * var(--gs));
+      gap: calc(8px * var(--gs));
     }
 
     .mgr-balance {
@@ -366,9 +387,9 @@
       color: var(--c-gold);
       font-family: 'Space Mono', monospace;
       background: rgba(240, 192, 24, 0.07);
-      border: 1px solid rgba(240, 192, 24, 0.18);
+      border: 1px solid rgba(240, 192, 24, 0.20);
       border-radius: calc(7px * var(--gs));
-      padding: calc(4px * var(--gs)) calc(11px * var(--gs));
+      padding: calc(4px * var(--gs)) calc(12px * var(--gs));
     }
 
     .mgr-close {
@@ -379,65 +400,61 @@
       justify-content: center;
       cursor: pointer;
       border-radius: calc(7px * var(--gs));
-      color: #776655;
+      color: #445566;
       font-size: calc(14px * var(--gs));
       background: none;
       border: none;
       font-family: 'Space Grotesk', sans-serif;
       transition: background 0.15s, color 0.15s;
     }
-    .mgr-close:hover { background: rgba(255,255,255,0.07); color: var(--c-text); }
+    .mgr-close:hover { background: rgba(255,255,255,0.06); color: var(--c-text); }
+
+    .mgr-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid rgba(100,200,255,0.10);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .mgr-tabs::-webkit-scrollbar { display: none; }
+
+    .mgr-nav-item {
+      padding: calc(9px * var(--gs)) calc(18px * var(--gs));
+      font-size: calc(12px * var(--gs));
+      font-weight: 600;
+      color: #3a4d5e;
+      cursor: pointer;
+      transition: color 0.14s, border-color 0.14s, background 0.14s;
+      border-bottom: calc(2px * var(--gs)) solid transparent;
+      white-space: nowrap;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .mgr-nav-item:hover:not(.active) {
+      color: #6699bb;
+      background: rgba(100,200,255,0.03);
+    }
+    .mgr-nav-item.active {
+      color: #88ddff;
+      border-bottom-color: #88ddff;
+      background: rgba(100,200,255,0.05);
+    }
 
     .mgr-body {
-      display: flex;
       flex: 1;
       overflow: hidden;
       min-height: 0;
     }
 
-    .mgr-nav {
-      width: calc(132px * var(--gs));
-      flex-shrink: 0;
-      border-right: 1px solid rgba(240, 192, 24, 0.08);
-      padding: calc(10px * var(--gs)) calc(8px * var(--gs));
-      display: flex;
-      flex-direction: column;
-      gap: calc(2px * var(--gs));
-      overflow-y: auto;
-    }
-
-    .mgr-nav-item {
-      padding: calc(9px * var(--gs)) calc(12px * var(--gs));
-      border-radius: calc(8px * var(--gs));
-      font-size: calc(12px * var(--gs));
-      font-weight: 600;
-      color: #554433;
-      cursor: pointer;
-      transition: background 0.14s, color 0.14s, border-color 0.14s;
-      border: 1px solid transparent;
-    }
-    .mgr-nav-item:hover:not(.active) {
-      background: rgba(255,255,255,0.04);
-      color: #997755;
-    }
-    .mgr-nav-item.active {
-      background: rgba(240, 192, 24, 0.08);
-      color: var(--c-gold);
-      border-color: rgba(240, 192, 24, 0.2);
-      border-left: calc(3px * var(--gs)) solid var(--c-gold);
-      padding-left: calc(9px * var(--gs));
-    }
-
     .mgr-content {
-      flex: 1;
+      height: 100%;
       overflow-y: auto;
-      padding: calc(14px * var(--gs)) calc(16px * var(--gs));
-      min-width: 0;
+      padding: calc(16px * var(--gs)) calc(20px * var(--gs));
       scrollbar-width: thin;
-      scrollbar-color: rgba(240,192,24,0.18) transparent;
+      scrollbar-color: rgba(100,200,255,0.15) transparent;
     }
     .mgr-content::-webkit-scrollbar { width: 3px; }
-    .mgr-content::-webkit-scrollbar-thumb { background: rgba(240,192,24,0.18); border-radius: 2px; }
+    .mgr-content::-webkit-scrollbar-thumb { background: rgba(100,200,255,0.15); border-radius: 2px; }
 
     /* ── OVERVIEW SECTION ─────────────────────────────────────── */
     .ov-grid {
@@ -679,28 +696,27 @@
     }
 
     .mo-t1 {
-      font-size: calc(62px * var(--gs));
+      font-size: calc(54px * var(--gs));
       font-weight: 700;
       color: #ff88cc;
       text-shadow: 0 0 60px rgba(255, 68, 170, 0.55), calc(4px * var(--gs)) calc(4px * var(--gs)) 0 #550022;
-      letter-spacing: -0.02em;
+      letter-spacing: 0.03em;
       line-height: 1;
+      white-space: nowrap;
     }
 
-    .mo-t2 {
-      font-size: calc(34px * var(--gs));
-      font-weight: 600;
+    .mo-t1-lunar {
       color: #88ddff;
-      text-shadow: 0 0 40px rgba(68, 170, 221, 0.45), calc(3px * var(--gs)) calc(3px * var(--gs)) 0 #003355;
-      margin-top: calc(5px * var(--gs));
+      text-shadow: 0 0 50px rgba(68, 200, 255, 0.65), calc(4px * var(--gs)) calc(4px * var(--gs)) 0 #002244;
     }
 
     .mo-sub {
-      font-size: calc(13px * var(--gs));
-      color: #ffaadd;
-      opacity: 0.75;
-      margin-top: calc(10px * var(--gs));
+      font-size: calc(12px * var(--gs));
+      color: #ffccee;
+      opacity: 0.80;
+      margin-top: calc(12px * var(--gs));
       font-style: italic;
+      letter-spacing: 0.04em;
     }
 
     .mo-buttons {
@@ -1357,6 +1373,7 @@
   </style>
 </head>
 <body>
+  <div id="vignette"></div>
   <div id="ui-root">
 
     <!-- ── HUD ─────────────────────────────────────────────── -->
@@ -1512,18 +1529,19 @@
     <!-- ── MANAGER PANEL ─────────────────────────────────────── -->
     <div id="manager-panel">
       <div class="mgr-header">
-        <span class="mgr-title">
-          <svg viewBox="0 0 18 18" fill="none" style="width:calc(15px * var(--gs));height:calc(15px * var(--gs));flex-shrink:0">
-            <rect x="2" y="7" width="14" height="10" rx="2" fill="#f0c018" opacity="0.9"/>
-            <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="#a87e0a" stroke-width="1.5" fill="none"/>
-          </svg>
-          Store Manager
-        </span>
-        <span class="mgr-balance"><span id="mgr-balance-val">0</span> ✦</span>
-        <button class="mgr-close" id="manager-close">&#10005;</button>
-      </div>
-      <div class="mgr-body">
-        <nav class="mgr-nav" id="manager-nav">
+        <div class="mgr-header-top">
+          <span class="mgr-title">
+            <svg viewBox="0 0 18 18" fill="none" style="width:calc(15px * var(--gs));height:calc(15px * var(--gs));flex-shrink:0">
+              <rect x="2" y="8" width="12" height="9" rx="2" fill="#88ddff" opacity="0.85"/>
+              <path d="M5 8 Q5 4 9 4 Q13 4 13 8" stroke="#55aacc" stroke-width="1.5" fill="none"/>
+              <rect x="13" y="10" width="4" height="3" rx="1.5" fill="#55aacc" opacity="0.7"/>
+            </svg>
+            Café Manager
+          </span>
+          <span class="mgr-balance"><span id="mgr-balance-val">0</span> ✦</span>
+          <button class="mgr-close" id="manager-close">&#10005;</button>
+        </div>
+        <nav class="mgr-tabs" id="manager-nav">
           <div class="mgr-nav-item active" data-section="overview">Overview</div>
           <div class="mgr-nav-item" data-section="furnish">Furnish</div>
           <div class="mgr-nav-item" data-section="kitchen">Kitchen</div>
@@ -1531,6 +1549,8 @@
           <div class="mgr-nav-item" data-section="menu">Menu</div>
           <div class="mgr-nav-item" data-section="expand">Expand</div>
         </nav>
+      </div>
+      <div class="mgr-body">
         <div class="mgr-content" id="manager-content"></div>
       </div>
     </div>
@@ -1551,9 +1571,8 @@
     <!-- ── MAIN MENU OVERLAY ──────────────────────────────── -->
     <div id="menu-overlay" class="hidden">
       <div class="mo-title-wrap">
-        <div class="mo-t1">CAT CAFÉ</div>
-        <div class="mo-t2">ON THE MOON</div>
-        <div class="mo-sub">~ a cozy lunar café ~</div>
+        <div class="mo-t1"><span class="mo-t1-lunar">LUNAR</span> CAT CAFÉ</div>
+        <div class="mo-sub">~ manage your café · befriend the cats · reach the stars ~</div>
       </div>
       <div class="mo-buttons" id="menu-buttons"></div>
       <div class="mo-footer" id="menu-footer">

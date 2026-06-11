@@ -263,6 +263,8 @@ export class GameScene extends Phaser.Scene {
 
     this.emitUIUpdate();
     this.cameras.main.setBounds(0, 0, GAME_W, GAME_H);
+    this.cameras.main.setZoom(1.8);
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.fadeIn(800, 5, 5, 16);
 
     this.time.addEvent({
@@ -370,7 +372,7 @@ export class GameScene extends Phaser.Scene {
   private buildMap(): void {
     this.wallGroup = this.physics.add.staticGroup();
     const tier = this.getCurrentTier().level;
-    const warmFloor = tier >= 3 ? 'tile_floor' : 'tile_floor_industrial';
+    const warmFloor = tier >= 3 ? 'tile_floor' : tier >= 2 ? 'tile_floor_dark' : 'tile_floor_dark';
 
     for (let row = 0; row < MAP_ROWS; row++) {
       for (let col = 0; col < MAP_COLS; col++) {
@@ -429,11 +431,6 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(wx, wy - 26, 'obj_chair').setDepth(2).setFlipY(true);
       this.add.sprite(wx, wy + 26, 'obj_chair').setDepth(4);
 
-      this.add.text(wx, wy - 20, `T${slot.id + 1}`, {
-        fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#3A1A00', strokeThickness: 3,
-      }).setOrigin(0.5, 0.5).setDepth(4.5);
-
       this.tables.push({
         id: slot.id, worldX: wx, worldY: wy,
         seats: [{ seatX: wx, seatY: wy + 22, occupied: false, customerId: null }],
@@ -451,11 +448,6 @@ export class GameScene extends Phaser.Scene {
       this.add.sprite(wx + 18, wy - 26, 'obj_chair').setDepth(2).setFlipY(true);
       this.add.sprite(wx - 18, wy + 26, 'obj_chair').setDepth(4);
       this.add.sprite(wx + 18, wy + 26, 'obj_chair').setDepth(4);
-
-      this.add.text(wx, wy - 20, `T${slot.id + 1}`, {
-        fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#3A1A00', strokeThickness: 3,
-      }).setOrigin(0.5, 0.5).setDepth(4.5);
 
       this.tables.push({
         id: slot.id, worldX: wx, worldY: wy,
@@ -562,15 +554,65 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // ── Kitchen label (always) ────────────────────────────────────
-    this.add.text(15 * TILE, 5.5 * TILE, 'KITCHEN', {
-      fontSize: '11px', color: '#C8920A', fontFamily: 'monospace',
-      stroke: '#000000', strokeThickness: 2,
-    } as Phaser.Types.GameObjects.Text.TextStyle).setOrigin(0.5, 0.5).setDepth(2).setAlpha(0.6);
   }
 
   private buildExteriorDecor(): void {
     const tier = this.getCurrentTier().level;
+
+    // ── Earth visible in the sky — positioned at object origin so Phaser culls correctly ──
+    {
+      const ex = 14 * TILE + TILE / 2, ey = 2 * TILE;
+      const earthG = this.add.graphics({ x: ex, y: ey }).setDepth(0.8);
+      // Atmosphere glow rings (drawn at 0,0 relative to graphics origin)
+      earthG.fillStyle(0x1144BB, 0.28); earthG.fillCircle(0, 0, 58);
+      earthG.fillStyle(0x2266CC, 0.38); earthG.fillCircle(0, 0, 44);
+      // Ocean base
+      earthG.fillStyle(0x1A5A9A, 1);    earthG.fillCircle(0, 0, 34);
+      // Land masses
+      earthG.fillStyle(0x2E7040, 1);
+      earthG.fillEllipse(-12, -8, 24, 18);
+      earthG.fillEllipse(10, 6, 18, 14);
+      earthG.fillEllipse(-4,  14, 14, 12);
+      // Polar ice
+      earthG.fillStyle(0xDDEEFF, 0.90); earthG.fillEllipse(0, -26, 20, 12);
+      // Clouds
+      earthG.fillStyle(0xCCDDEE, 0.70);
+      earthG.fillEllipse(-10, -4, 22, 8);
+      earthG.fillEllipse(8,  -16, 16, 7);
+      earthG.fillEllipse(-2,  18, 14, 6);
+      // Rim atmosphere edge
+      earthG.fillStyle(0x66AADD, 0.28); earthG.fillCircle(0, 0, 36);
+    }
+
+    // ── Distant moon mountain silhouettes at horizon ───────────────
+    // Graphics positioned at scene origin to avoid Phaser culling the object when
+    // cameraLeft > 0 (Graphics with (x=0,y=0) and zero size gets culled on scroll)
+    {
+      const horizY = 3 * TILE;
+      const mtnG = this.add.graphics({ x: 0, y: horizY }).setDepth(0.7);
+      mtnG.fillStyle(0x4A5060, 0.65);
+      const lPts = [
+        [0, 0], [0, -28], [1*TILE, -18], [2*TILE, -44],
+        [3*TILE, -30], [4*TILE, -52], [5*TILE, -36],
+        [6*TILE, -22], [7*TILE, -38], [8*TILE, -16],
+        [9*TILE, 0], [0, 0],
+      ];
+      mtnG.fillPoints(lPts.map(([x, y]) => ({ x, y })), true);
+      const rPts = [
+        [21*TILE, 0], [21*TILE, -14], [22*TILE, -36],
+        [23*TILE, -20], [24*TILE, -48], [25*TILE, -32],
+        [26*TILE, -44], [27*TILE, -24], [28*TILE, -18],
+        [29*TILE, -38], [30*TILE, -20], [30*TILE, 0], [21*TILE, 0],
+      ];
+      mtnG.fillPoints(rPts.map(([x, y]) => ({ x, y })), true);
+      mtnG.lineStyle(1, 0x7080A0, 0.45);
+      mtnG.beginPath();
+      mtnG.moveTo(0, -28); mtnG.lineTo(1*TILE, -18);
+      mtnG.lineTo(2*TILE, -44); mtnG.lineTo(3*TILE, -30);
+      mtnG.lineTo(4*TILE, -52); mtnG.lineTo(5*TILE, -36);
+      mtnG.lineTo(6*TILE, -22); mtnG.lineTo(7*TILE, -38);
+      mtnG.lineTo(8*TILE, -16); mtnG.strokePath();
+    }
 
     // ── Shack structural beam at base of front wall ───────────────
     const domeG = this.add.graphics().setDepth(1.5);
@@ -782,11 +824,6 @@ export class GameScene extends Phaser.Scene {
       this.tables.push({ id: tableId, worldX: wx, worldY: wy,
         seats: [{ seatX: wx, seatY: wy, occupied: false, customerId: null }] });
 
-      const label = this.add.text(wx, wy - 16, `T${tableId + 1}`, {
-        fontSize: '9px', color: '#FFDD88', fontFamily: 'monospace', fontStyle: 'bold',
-        stroke: '#3A1A00', strokeThickness: 3,
-      }).setOrigin(0.5, 0.5).setDepth(4.5);
-      this.tableLabels.set(`${tileX},${tileY}`, label);
       this.hardBlockedTiles.add(`${tileX},${tileY}`);
       return;
     }
@@ -835,13 +872,6 @@ export class GameScene extends Phaser.Scene {
         ]
       : [{ seatX: wx, seatY: wy + 22, occupied: false, customerId: null }];
     this.tables.push({ id: tableId, worldX: wx, worldY: wy, seats });
-
-    // Table label
-    const label = this.add.text(wx, wy - 20, `T${tableId + 1}`, {
-      fontSize: '10px', color: '#FFE8B0', fontFamily: 'monospace', fontStyle: 'bold',
-      stroke: '#3A1A00', strokeThickness: 3,
-    }).setOrigin(0.5, 0.5).setDepth(4.5);
-    this.tableLabels.set(`${tileX},${tileY}`, label);
 
     this.hardBlockedTiles.add(`${tileX},${tileY}`);
   }
@@ -1475,6 +1505,7 @@ export class GameScene extends Phaser.Scene {
       const cat = new Cat(
         this, pos.col * TILE + TILE/2, pos.row * TILE + TILE/2, data, bounds,
       );
+      cat.setScale(1.5);
       this.cats.push(cat);
       this.physics.add.collider(cat, this.wallGroup);
       this.physics.add.collider(cat, this.furnitureGroup);
@@ -1721,8 +1752,14 @@ export class GameScene extends Phaser.Scene {
   private setupSpaceAmbience(): void {
     const tier = this.getCurrentTier().level;
 
+    // ── Warm interior fill — makes café feel lit from within ─────────────
+    const cafeL = 9 * TILE, cafeT = 3 * TILE, cafeW = 12 * TILE, cafeH = 11 * TILE;
+    const interiorWarm = this.add.graphics().setDepth(0.41).setBlendMode(Phaser.BlendModes.ADD);
+    interiorWarm.fillStyle(0x2A1200, 0.45);
+    interiorWarm.fillRect(cafeL, cafeT, cafeW, cafeH);
+
     // ── Warm interior glow — scales up with tier ──────────────────
-    const warmScale = [0, 0, 0.010, 0.020, 0.030, 0.040][tier] ?? 0.040;
+    const warmScale = [0, 0.006, 0.012, 0.022, 0.032, 0.042][tier] ?? 0.042;
     if (warmScale > 0) {
       this.warmGlowGraphic = this.add.graphics().setDepth(0.5).setBlendMode(Phaser.BlendModes.ADD);
       this.warmGlowGraphic.fillStyle(0xFF7700, warmScale * 1.5); this.warmGlowGraphic.fillCircle(15 * TILE, 9 * TILE, 80);

@@ -21,6 +21,7 @@ export interface Station {
   progressBg?: Phaser.GameObjects.Sprite;
   progressFill?: Phaser.GameObjects.Graphics;
   readyFoodSprite?: Phaser.GameObjects.Sprite;
+  steamEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   currentOrderId: number | null;
   cookingItemId: string | null;
 }
@@ -63,22 +64,23 @@ export class KitchenSystem {
     this.scene.add.text(this.trashCanX, this.trashCanY - 16, 'Discard', {
       fontSize: '10px', color: '#998877', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(5);
+    }).setOrigin(0.5, 1).setDepth(5).setAlpha(0);
   }
 
   setupSteam(): void {
-    const coffeeStation = this.stations.find(s => s.machineId === 'espresso_machine');
-    if (!coffeeStation) return;
-    const emitter = this.scene.add.particles(coffeeStation.worldX, coffeeStation.worldY - 20, 'particle_steam', {
-      speed: { min: 8, max: 20 },
-      scale: { start: 0.6, end: 0 },
-      alpha: { start: 0.5, end: 0 },
-      lifespan: { min: 600, max: 1200 },
-      frequency: 400,
-      gravityY: -18,
-      angle: { min: -20, max: 20 },
-    });
-    emitter.setDepth(6);
+    for (const stn of this.stations) {
+      const emitter = this.scene.add.particles(stn.worldX, stn.worldY - 22, 'particle_steam', {
+        speed: { min: 5, max: 14 },
+        scale: { start: 0.44, end: 0 },
+        alpha: { start: 0.38, end: 0 },
+        lifespan: { min: 900, max: 1800 },
+        frequency: 700,
+        gravityY: -14,
+        angle: { min: -28, max: 28 },
+      });
+      emitter.setDepth(6);
+      stn.steamEmitter = emitter;
+    }
   }
 
   spawnCooks(nameOffset: number): void {
@@ -297,7 +299,7 @@ export class KitchenSystem {
     const label = this.scene.add.text(wx, wy - 20, def.label, {
       fontSize: '10px', color: '#FFEEDD', fontFamily: 'monospace',
       stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(5);
+    }).setOrigin(0.5, 1).setDepth(5).setAlpha(0);
     const station: Station = {
       id: this.stations.length, machineId: def.id, worldX: wx, worldY: wy,
       sprite, label, isCooking: false, cookProgress: 0,
@@ -311,6 +313,7 @@ export class KitchenSystem {
     stn.sprite.setScale(1);
     stn.progressBg = this.scene.add.sprite(stn.worldX, stn.worldY - 50, 'ui_progress_bg').setDepth(20);
     stn.progressFill = this.scene.add.graphics().setDepth(21);
+    stn.steamEmitter?.setFrequency(120);
   }
 
   private clearStation(stn: Station): void {
@@ -323,6 +326,7 @@ export class KitchenSystem {
     stn.readyFoodSprite?.destroy(); stn.readyFoodSprite = undefined;
     stn.sprite.clearTint();
     stn.sprite.setScale(1);
+    stn.steamEmitter?.setFrequency(2000);
   }
 
   private getItem(itemId: string | null): MenuItemDef | null {
