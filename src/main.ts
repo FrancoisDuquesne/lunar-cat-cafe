@@ -7,13 +7,13 @@ import { UIScene } from './scenes/UIScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: GAME_W,
-  height: GAME_H,
+  width: window.innerWidth,
+  height: window.innerHeight,
   backgroundColor: '#050510',
   pixelArt: true,
-  parent: 'game-wrap',
+  parent: 'phaser-root',
   scale: {
-    mode: Phaser.Scale.NONE,
+    mode: Phaser.Scale.RESIZE,
   },
   physics: {
     default: 'arcade',

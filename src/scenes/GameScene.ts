@@ -230,6 +230,7 @@ export class GameScene extends Phaser.Scene {
     this.buildMode.isBuildableTile = (tx, ty) => { const t = MAP[ty]?.[tx]; return t === 1 || t === 5; };
 
     this.player = new Player(this, 14 * TILE + TILE / 2, 8 * TILE + TILE / 2);
+    this.player.setScale(1.4);
     this.player.onInteract = () => this.handleInteraction();
 
     this.physics.add.collider(this.player, this.wallGroup);
@@ -266,6 +267,9 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1.8);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.fadeIn(800, 5, 5, 16);
+    this.scale.on('resize', (gs: Phaser.Structs.Size) => {
+      this.cameras.main.setSize(gs.width, gs.height);
+    });
     // Start ambient sounds after a short delay (allows AudioContext to initialise)
     this.time.delayedCall(1200, () => this.startAmbientAudio());
 
@@ -1895,24 +1899,24 @@ export class GameScene extends Phaser.Scene {
 
   private showInteractionPrompt(ctx: InteractionContext): void {
     const hasSecondary = !!ctx.secondaryLabel;
-    const h = hasSecondary ? 48 : 32;
+    const h = hasSecondary ? 28 : 18;
     if (!this.interactionPrompt) {
       const container = this.add.container(0, 0).setDepth(100);
       const bg = this.add.graphics();
-      const prompt = this.add.sprite(10, 16, 'ui_e_prompt').setOrigin(0, 0.5).setScale(0.9);
-      const txt = this.add.text(38, 16, '', {
-        fontSize: '12px', color: '#FFEEDD', fontFamily: 'monospace',
-        stroke: '#000000', strokeThickness: 2,
+      const prompt = this.add.sprite(6, 9, 'ui_e_prompt').setOrigin(0, 0.5).setScale(0.5);
+      const txt = this.add.text(22, 9, '', {
+        fontSize: '7px', color: '#FFEEDD', fontFamily: 'monospace',
+        stroke: '#000000', strokeThickness: 1,
       }).setOrigin(0, 0.5);
-      const secondary = this.add.text(38, 34, '', {
-        fontSize: '10px', color: '#AAAAAA', fontFamily: 'monospace',
+      const secondary = this.add.text(22, 19, '', {
+        fontSize: '6px', color: '#AAAAAA', fontFamily: 'monospace',
         stroke: '#000000', strokeThickness: 1,
       }).setOrigin(0, 0.5);
       container.add([bg, prompt, txt, secondary]);
       container.setData('bg', bg);
       container.setData('txt', txt);
       container.setData('secondary', secondary);
-      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 240, 48), Phaser.Geom.Rectangle.Contains);
+      container.setInteractive(new Phaser.Geom.Rectangle(0, 0, 111, 28), Phaser.Geom.Rectangle.Contains);
       container.on('pointerdown', () => this.handleInteraction());
       this.interactionPrompt = container;
     }
@@ -1921,14 +1925,14 @@ export class GameScene extends Phaser.Scene {
     const secondary = this.interactionPrompt.getData('secondary') as Phaser.GameObjects.Text;
     bg.clear();
     bg.fillStyle(COLORS.UI_PANEL, 0.92);
-    bg.fillRoundedRect(0, 0, 240, h, 6);
+    bg.fillRoundedRect(0, 0, 111, h, 4);
     bg.lineStyle(1, COLORS.UI_GOLD, 0.8);
-    bg.strokeRoundedRect(0, 0, 240, h, 6);
+    bg.strokeRoundedRect(0, 0, 111, h, 4);
     txt.setText(ctx.label);
-    secondary.setText(ctx.secondaryLabel ? `also nearby: ${ctx.secondaryLabel}` : '');
+    secondary.setText(ctx.secondaryLabel ? `also: ${ctx.secondaryLabel}` : '');
     secondary.setVisible(hasSecondary);
-    const promptX = Phaser.Math.Clamp(this.player.x - 120, 4, GAME_W - 244);
-    const promptY = Phaser.Math.Clamp(this.player.y - (hasSecondary ? 68 : 56), 60, GAME_H - h - 4);
+    const promptX = Phaser.Math.Clamp(this.player.x - 55, 4, GAME_W - 115);
+    const promptY = Phaser.Math.Clamp(this.player.y - (hasSecondary ? 38 : 31), 33, GAME_H - h - 4);
     this.interactionPrompt.setPosition(promptX, promptY);
     this.interactionPrompt.setVisible(true);
   }
