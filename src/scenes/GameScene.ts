@@ -266,6 +266,8 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1.8);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.fadeIn(800, 5, 5, 16);
+    // Start ambient sounds after a short delay (allows AudioContext to initialise)
+    this.time.delayedCall(1200, () => this.startAmbientAudio());
 
     this.time.addEvent({
       delay: DAY_DURATION_MS,
@@ -1734,9 +1736,11 @@ export class GameScene extends Phaser.Scene {
           const lastPet = this.catPetCooldowns.get(cat.catId) ?? -Infinity;
           if (this.time.now - lastPet < PET_COOLDOWN_MS) {
             this.showFloatingText(cat.x, cat.y - 30, 'Purring...', '#AACCDD');
+            this.playCatPurr();
           } else {
             cat.pet();
             this.playPop();
+            this.playCatPurr();
             const bonus = 3 + Math.floor(cat.happiness / 25);
             this.money += bonus;
             this.catPetCooldowns.set(cat.catId, this.time.now);
@@ -2062,6 +2066,69 @@ export class GameScene extends Phaser.Scene {
     [880, 1100, 1320].forEach((f, i) => {
       this.time.delayedCall(i * 80, () => this.playTone(f, 200, 'sine', 0.06));
     });
+  }
+
+  // ── Ambient café atmosphere ────────────────────────────────────────────
+
+  startAmbientAudio(): void {
+    if (!isSoundEnabled()) return;
+    // Gentle background chord — warm café piano voicing, very subtle
+    const chord = [220, 277, 330, 415]; // Am chord: A3 C#4 E4 G#4
+    const delay = [0, 120, 240, 360];
+    chord.forEach((freq, i) => {
+      this.time.delayedCall(delay[i], () => {
+        this.playTone(freq, 1800, 'sine', 0.018);
+        this.playTone(freq * 2, 1400, 'sine', 0.009);
+      });
+    });
+    // Loop every 6 seconds
+    this.time.addEvent({
+      delay: 6000, loop: true, callback: () => {
+        if (!isSoundEnabled()) return;
+        const progressions = [
+          [220, 277, 330, 415], // Am
+          [196, 247, 294, 370], // Gm-ish
+          [233, 293, 349, 440], // Bb-ish
+          [207, 261, 311, 392], // Cm-ish
+        ];
+        const prog = progressions[Math.floor(this.dayProgress * 4) % 4];
+        prog.forEach((freq, i) => {
+          this.time.delayedCall(i * 100, () => this.playTone(freq, 2200, 'sine', 0.016));
+        });
+      },
+    });
+
+    // Occasional soft cup-clink / cutlery sound
+    this.time.addEvent({
+      delay: 8000 + Math.random() * 4000, loop: false,
+      callback: () => this.scheduleClink(),
+    });
+  }
+
+  private scheduleClink(): void {
+    this.playTone(1760 + Math.random() * 440, 60, 'sine', 0.025);
+    const next = 5000 + Math.random() * 8000;
+    this.time.addEvent({ delay: next, callback: () => this.scheduleClink() });
+  }
+
+  playCatPurr(): void {
+    const ctx = this.getAudioCtx();
+    if (!ctx || !isSoundEnabled()) return;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.frequency.value = 90; osc.type = 'sawtooth';
+    lfo.frequency.value = 22; lfo.type = 'sine';
+    lfoGain.gain.value = 55;
+    lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.028, ctx.currentTime + 0.25);
+    gain.gain.setValueAtTime(0.028, ctx.currentTime + 0.9);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.2);
+    lfo.start(); osc.start();
+    lfo.stop(ctx.currentTime + 1.2); osc.stop(ctx.currentTime + 1.2);
   }
 
   // ─────────────────────────────────────────────────────────────────────

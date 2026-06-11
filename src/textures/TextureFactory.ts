@@ -22,23 +22,24 @@ function ol(g: Phaser.GameObjects.Graphics, lw = 2): void {
 
 export function createFloorTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Warm honey oak — horizontal planks
-  g.fillStyle(0xB87020, 1); g.fillRect(0, 0, TILE, TILE);
-  // Plank top highlights (cel-shade band)
-  g.fillStyle(0xD09038, 1);
+  // Warm cream/ivory parquet — target palette tier 3+
+  g.fillStyle(0xF0E4C0, 1); g.fillRect(0, 0, TILE, TILE);
+  // Plank seam — warm gold
+  g.fillStyle(0xC8AA60, 0.8);
+  g.fillRect(0, 10, TILE, 2);
+  g.fillRect(0, 21, TILE, 2);
+  // Top highlight
+  g.fillStyle(0xFFFAE8, 0.55);
   g.fillRect(0, 0, TILE, 3);
-  g.fillRect(0, 11, TILE, 3);
-  g.fillRect(0, 22, TILE, 3);
-  // Plank seam shadows
-  g.fillStyle(0x6A3C0C, 1);
-  g.fillRect(0, 9, TILE, 2);
-  g.fillRect(0, 20, TILE, 2);
-  g.fillRect(0, 31, TILE, 1);
-  // Subtle grain streaks
-  g.fillStyle(0x9A5A14, 0.5);
-  g.fillRect(4, 1, 7, 1);
-  g.fillRect(18, 12, 9, 1);
-  g.fillRect(8, 23, 11, 1);
+  g.fillRect(0, 12, TILE, 2);
+  g.fillRect(0, 23, TILE, 2);
+  // Grain streaks
+  g.fillStyle(0xD8C070, 0.4);
+  g.fillRect(5, 3, 9, 1); g.fillRect(20, 4, 7, 1);
+  g.fillRect(3, 14, 10, 1); g.fillRect(18, 15, 8, 1);
+  g.fillRect(6, 25, 11, 1); g.fillRect(22, 26, 6, 1);
+  // Bottom shadow strip
+  g.fillStyle(0xA88030, 0.3); g.fillRect(0, TILE - 2, TILE, 2);
   gen(scene, g, 'tile_floor', TILE, TILE);
 }
 
@@ -69,71 +70,87 @@ export function createFloorIndustrialTile(scene: Phaser.Scene): void {
 
 export function createFloorDarkTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Slightly cooler oak — vertical planks (parquet variation)
-  g.fillStyle(0xA06018, 1); g.fillRect(0, 0, TILE, TILE);
-  // Plank top highlights
-  g.fillStyle(0xC07830, 1);
+  // Slightly darker warm ivory — tier 1-2 version
+  g.fillStyle(0xD8C898, 1); g.fillRect(0, 0, TILE, TILE);
+  // Vertical plank seams — warm gold
+  g.fillStyle(0xA88840, 0.75);
+  g.fillRect(10, 0, 2, TILE);
+  g.fillRect(21, 0, 2, TILE);
+  // Left highlight
+  g.fillStyle(0xEEDCA8, 0.6);
   g.fillRect(0, 0, 3, TILE);
-  g.fillRect(11, 0, 3, TILE);
-  g.fillRect(22, 0, 3, TILE);
-  // Plank seam shadows
-  g.fillStyle(0x5A3008, 1);
-  g.fillRect(9, 0, 2, TILE);
-  g.fillRect(20, 0, 2, TILE);
-  g.fillRect(31, 0, 1, TILE);
-  // Subtle grain
-  g.fillStyle(0x884A10, 0.5);
-  g.fillRect(1, 5, 1, 8);
-  g.fillRect(12, 16, 1, 9);
-  g.fillRect(23, 3, 1, 7);
+  g.fillRect(12, 0, 2, TILE);
+  g.fillRect(23, 0, 2, TILE);
+  // Grain
+  g.fillStyle(0xB89048, 0.4);
+  g.fillRect(1, 6, 1, 10); g.fillRect(1, 22, 1, 7);
+  g.fillRect(13, 3, 1, 8); g.fillRect(13, 18, 1, 9);
+  g.fillRect(24, 8, 1, 11); g.fillRect(24, 24, 1, 6);
+  // Bottom shadow
+  g.fillStyle(0x887030, 0.28); g.fillRect(0, TILE - 2, TILE, 2);
   gen(scene, g, 'tile_floor_dark', TILE, TILE);
 }
 
 export function createKitchenFloorTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Industrial cream/gray checkerboard tile
-  for (let r = 0; r < 2; r++) {
-    for (let c = 0; c < 2; c++) {
-      g.fillStyle((r + c) % 2 === 0 ? 0xE8E0CC : 0xC8C0A4, 1);
-      g.fillRect(c * 16, r * 16, 16, 16);
-    }
-  }
-  // Grout lines
-  g.fillStyle(0x787060, 1);
-  g.fillRect(0, 15, TILE, 2);
-  g.fillRect(15, 0, 2, TILE);
+  // Dark navy tech grid — high-tech kitchen aesthetic
+  g.fillStyle(0x090E1E, 1); g.fillRect(0, 0, TILE, TILE);
+  // Grid lines — dark teal
+  g.fillStyle(0x00304A, 1);
+  g.fillRect(0, 15, TILE, 1);  // horizontal
+  g.fillRect(15, 0, 1, TILE);  // vertical
+  // Bright accent grid cross
+  g.fillStyle(0x006688, 0.7);
+  g.fillRect(0, 0, TILE, 1);  // top edge
+  g.fillRect(0, 0, 1, TILE);  // left edge
+  // Faint cell fill — alternating very subtle shades
+  g.fillStyle(0x0C1428, 0.8); g.fillRect(1, 1, 14, 14);
+  g.fillStyle(0x081020, 0.8); g.fillRect(16, 1, 15, 14);
+  g.fillStyle(0x081020, 0.8); g.fillRect(1, 16, 14, 15);
+  g.fillStyle(0x0C1428, 0.8); g.fillRect(16, 16, 15, 15);
+  // Neon cyan corner dots at intersections
+  g.fillStyle(0x008899, 0.9); g.fillCircle(0, 0, 1.5);
+  g.fillStyle(0x00AACC, 0.7); g.fillCircle(0, 0, 0.8);
+  g.fillStyle(0x008899, 0.9); g.fillCircle(16, 0, 1.5);
+  g.fillStyle(0x00AACC, 0.7); g.fillCircle(16, 0, 0.8);
+  g.fillStyle(0x008899, 0.9); g.fillCircle(0, 16, 1.5);
+  g.fillStyle(0x00AACC, 0.7); g.fillCircle(0, 16, 0.8);
+  g.fillStyle(0x008899, 0.9); g.fillCircle(16, 16, 1.5);
+  g.fillStyle(0x00AACC, 0.7); g.fillCircle(16, 16, 0.8);
   gen(scene, g, 'tile_kitchen', TILE, TILE);
 }
 
 export function createWallTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Riveted industrial habitat panel — dark steel blue-gray
-  g.fillStyle(0x4A5060, 1); g.fillRect(0, 0, TILE, TILE);
-  // Sunlit top edge highlight
-  g.fillStyle(0x6A7888, 1); g.fillRect(0, 0, TILE, 4);
-  // Horizontal panel seam at mid-point
-  g.fillStyle(0x323844, 1); g.fillRect(0, 15, TILE, 2);
-  // Vertical panel seams
-  g.fillStyle(0x363C48, 1);
+  // Deep navy panel — "warm neon space-cozy" target palette
+  g.fillStyle(0x10102A, 1); g.fillRect(0, 0, TILE, TILE);
+  // Panel texture — faint lighter navy bands
+  g.fillStyle(0x181840, 0.7); g.fillRect(0, 0, TILE, 14);
+  g.fillStyle(0x0E0E24, 0.7); g.fillRect(0, 16, TILE, 16);
+  // Vertical panel seams — subtle
+  g.fillStyle(0x0A0A20, 1);
   g.fillRect(10, 0, 1, TILE);
   g.fillRect(21, 0, 1, TILE);
-  // Rivets — two rows at panel corners
-  const rivets = [
-    [4, 4], [13, 4], [24, 4], [28, 4],
-    [4, 12], [13, 12], [24, 12], [28, 12],
-    [4, 19], [13, 19], [24, 19], [28, 19],
-    [4, 28], [13, 28], [24, 28], [28, 28],
-  ];
-  rivets.forEach(([rx, ry]) => {
-    g.fillStyle(0x3A4050, 0.8); g.fillCircle(rx, ry, 2.2); // shadow
-    g.fillStyle(0x607080, 1);   g.fillCircle(rx, ry, 1.8); // body
-    g.fillStyle(0x9AAABB, 0.7); g.fillCircle(rx - 0.7, ry - 0.7, 0.8); // specular
+  // Neon cyan top trim line — glowing accent
+  g.fillStyle(0x00D4FF, 1);  g.fillRect(0, 0, TILE, 2);
+  g.fillStyle(0x0088BB, 0.5); g.fillRect(0, 2, TILE, 2);
+  // Horizontal mid-seam with subtle neon echo
+  g.fillStyle(0x0A0A20, 1);  g.fillRect(0, 15, TILE, 2);
+  g.fillStyle(0x004466, 0.6); g.fillRect(0, 14, TILE, 1);
+  g.fillStyle(0x004466, 0.4); g.fillRect(0, 17, TILE, 1);
+  // Tech circuit dots — neon cyan glow points
+  const dots = [[5, 6], [16, 6], [26, 6], [5, 21], [16, 21], [26, 21]];
+  dots.forEach(([dx, dy]) => {
+    g.fillStyle(0x003344, 1);  g.fillCircle(dx, dy, 2.2);
+    g.fillStyle(0x006688, 1);  g.fillCircle(dx, dy, 1.5);
+    g.fillStyle(0x00B8E0, 0.9); g.fillCircle(dx, dy, 0.8);
   });
-  // Bottom shadow strip
-  g.fillStyle(0x282D38, 1); g.fillRect(0, TILE - 4, TILE, 4);
-  // Subtle horizontal brushed-metal sheen
-  g.fillStyle(0xFFFFFF, 0.025);
-  [2, 6, 17, 21, 25].forEach(y => g.fillRect(0, y, TILE, 1));
+  // Horizontal circuit trace lines (faint)
+  g.fillStyle(0x002244, 0.6);
+  g.fillRect(0, 7, TILE, 1);
+  g.fillRect(0, 22, TILE, 1);
+  // Bottom shadow
+  g.fillStyle(0x060614, 1); g.fillRect(0, TILE - 3, TILE, 3);
   gen(scene, g, 'tile_wall', TILE, TILE);
 }
 
@@ -203,18 +220,21 @@ export function createWindowTile(scene: Phaser.Scene): void {
 
 export function createCounterTile(scene: Phaser.Scene): void {
   const g = makeGraphics(scene);
-  // Brushed stainless steel counter
-  g.fillStyle(0x5A6470, 1); g.fillRect(0, 0, TILE, TILE);
-  // Brushed highlight band
-  g.fillStyle(0x7A8898, 1); g.fillRect(0, 0, TILE, 5);
-  g.fillStyle(0x6A7888, 1); g.fillRect(0, 5, TILE, 4);
+  // Dark navy counter-top with neon cyan edge glow
+  g.fillStyle(0x1A1E38, 1); g.fillRect(0, 0, TILE, TILE);
+  // Top surface highlight — brushed dark metal
+  g.fillStyle(0x242848, 1); g.fillRect(0, 0, TILE, 6);
+  g.fillStyle(0x1E2240, 1); g.fillRect(0, 6, TILE, 5);
+  // Neon cyan top edge
+  g.fillStyle(0x00C8F0, 1);  g.fillRect(0, 0, TILE, 2);
+  g.fillStyle(0x006888, 0.5); g.fillRect(0, 2, TILE, 2);
   // Horizontal brush streaks
-  g.fillStyle(0xFFFFFF, 0.04);
-  [1, 3, 6, 9, 12, 15, 18, 22, 26].forEach(y => g.fillRect(0, y, TILE, 1));
-  // Side shadow
-  g.fillStyle(0x383E48, 1);
-  g.fillRect(0, TILE - 5, TILE, 5);
-  g.fillRect(0, 0, 2, TILE);
+  g.fillStyle(0xFFFFFF, 0.025);
+  [1, 4, 7, 11, 15, 19, 23, 27].forEach(y => g.fillRect(0, y, TILE, 1));
+  // Bottom shadow
+  g.fillStyle(0x0C0E1E, 1); g.fillRect(0, TILE - 4, TILE, 4);
+  // Left accent line
+  g.fillStyle(0x004466, 0.5); g.fillRect(0, 0, 2, TILE);
   gen(scene, g, 'tile_counter', TILE, TILE);
 }
 
